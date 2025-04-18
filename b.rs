@@ -209,12 +209,19 @@ pub mod ds { // Data Structures
     }
 }
 
+macro_rules! diagf {
+    ($l:expr, $path:expr, $where:expr, $fmt:literal $($args:tt)*) => {{
+        let mut loc: stb_c_lexer::stb_lex_location = zeroed();
+        stb_c_lexer::get_location($l, $where, &mut loc);
+        fprintf!(libc::stderr, c"%s:%d:%d: ", $path, loc.line_number, loc.line_offset + 1);
+        fprintf!(libc::stderr, $fmt $($args)*);
+    }};
+}
+
 unsafe fn expect_clex(l: *const stb_c_lexer::stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     if (*l).token != clex {
-        let mut loc: stb_c_lexer::stb_lex_location = zeroed();
-        stb_c_lexer::get_location(l, (*l).where_firstchar, &mut loc);
         // TODO: print tokens as human readable
-        fprintf!(libc::stderr, c"%s:%d:%d: ERROR: expected %ld, but got %ld\n", input_path, loc.line_number, loc.line_offset + 1, clex, (*l).token);
+        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected %ld, but got %ld\n", clex, (*l).token);
         return false
     }
     true
@@ -310,11 +317,8 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                 let name_where = l.where_firstchar;
                 let existing_var = find_auto_var(ds::array_slice(vars), name);
                 if !existing_var.is_null() {
-                    let mut loc: stb_c_lexer::stb_lex_location = zeroed();
-                    stb_c_lexer::get_location(&mut l, name_where, &mut loc);
-                    fprintf!(libc::stderr, c"%s:%d:%d: ERROR: redefinition of variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, name);
-                    stb_c_lexer::get_location(&mut l, (*existing_var).hwere, &mut loc);
-                    fprintf!(libc::stderr, c"%s:%d:%d: NOTE: the first declaration is located here\n", input_path, loc.line_number, loc.line_offset + 1);
+                    diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
+                    diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                     return 69;
                 }
                 ds::array_push(&mut vars, AutoVar {
@@ -333,9 +337,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                 if l.token == '=' as i64 {
                     let var_def = find_auto_var(ds::array_slice(vars), name);
                     if var_def.is_null() {
-                        let mut loc: stb_c_lexer::stb_lex_location = zeroed();
-                        stb_c_lexer::get_location(&mut l, name_where, &mut loc);
-                        fprintf!(libc::stderr, c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, name);
+                        diagf!(&mut l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
                         return 69;
                     }
 
@@ -355,9 +357,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         if !expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
                         let var_def = find_auto_var(ds::array_slice(vars), l.string);
                         if var_def.is_null() {
-                            let mut loc: stb_c_lexer::stb_lex_location = zeroed();
-                            stb_c_lexer::get_location(&mut l, l.where_firstchar, &mut loc);
-                            fprintf!(libc::stderr, c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, l.string);
+                            diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: could not find variable `%s`\n", l.string);
                             return 69;
                         }
 
@@ -368,8 +368,8 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                     }
                 } else {
-                    fprintf!(libc::stderr, c"TODO: stmt: report unexpected token\n");
-                    libc::abort()
+                    diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token %ld\n", l.token);
+                    return 69;
                 }
             }
         }
