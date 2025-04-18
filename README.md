@@ -1,5 +1,8 @@
 # B Programming Language
 
+> [!WARNING]
+> Compiler is not fully implemented yet.
+
 Compiler for the B Programming Language implemented in [Crust](https://github.com/tsoding/crust)
 
 ## Dependencies
