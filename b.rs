@@ -3,7 +3,7 @@
 extern crate core;
 
 use core::panic::PanicInfo;
-use core::ffi::{c_char};
+use core::ffi::*;
 use core::mem::zeroed;
 use core::ptr;
 
@@ -92,6 +92,8 @@ pub mod nob {
     extern "C" {
         #[link_name = "nob_read_entire_file"]
         pub fn read_entire_file(path: *const c_char, sb: *mut String_Builder) -> bool;
+        #[link_name = "nob_temp_sprintf"]
+        pub fn temp_sprintf(format: *const c_char, ...) -> *mut c_char;
     }
 }
 
@@ -218,10 +220,18 @@ macro_rules! diagf {
     }};
 }
 
+unsafe fn display_token_temp(token: c_long) -> *mut c_char {
+    // TODO: port print_token() from stb_c_lexer.h to display more tokens
+    if token < 256 {
+        nob::temp_sprintf(c"%c".as_ptr(), token)
+    } else {
+        nob::temp_sprintf(c"%ld".as_ptr(), token)
+    }
+}
+
 unsafe fn expect_clex(l: *const stb_c_lexer::stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     if (*l).token != clex {
-        // TODO: print tokens as human readable
-        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected %ld, but got %ld\n", clex, (*l).token);
+        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected %s, but got %s\n", display_token_temp(clex), display_token_temp((*l).token));
         return false
     }
     true
