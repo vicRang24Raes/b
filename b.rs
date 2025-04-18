@@ -213,6 +213,7 @@ unsafe fn expect_clex(l: *const stb_c_lexer::stb_lexer, input_path: *const c_cha
     if (*l).token != clex {
         let mut loc: stb_c_lexer::stb_lex_location = zeroed();
         stb_c_lexer::get_location(l, (*l).where_firstchar, &mut loc);
+        // TODO: print tokens as human readable
         fprintf!(libc::stderr, c"%s:%d:%d: ERROR: expected %ld, but got %ld\n", input_path, loc.line_number, loc.line_offset + 1, clex, (*l).token);
         return false
     }
@@ -228,7 +229,7 @@ unsafe fn get_and_expect_clex(l: *mut stb_c_lexer::stb_lexer, input_path: *const
 struct AutoVar {
     name: *const c_char,
     offset: usize,
-    _hwere: *mut c_char,
+    hwere: *mut c_char,
 }
 
 unsafe fn find_auto_var(vars: *mut [AutoVar], name: *const c_char) -> *mut AutoVar {
@@ -300,24 +301,28 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                 if !get_and_expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
                 printf!(c"    extrn %s\n", l.string);
                 // TODO: support multiple extrn declarations
+                // TODO: report extrn redefinition
                 if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
             } else if libc::strcmp(l.string, c"auto".as_ptr()) == 0 {
                 if !get_and_expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
                 vars_offset += 8;
                 let name = libc::strdup(l.string);
+                let name_where = l.where_firstchar;
                 let existing_var = find_auto_var(ds::array_slice(vars), name);
                 if !existing_var.is_null() {
-                    // TODO: report where is the original definition
-                    printf!(c"ERROR: redefinition of variable `%s`\n", name);
+                    let mut loc: stb_c_lexer::stb_lex_location = zeroed();
+                    stb_c_lexer::get_location(&mut l, name_where, &mut loc);
+                    fprintf!(libc::stderr, c"%s:%d:%d: ERROR: redefinition of variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, name);
+                    stb_c_lexer::get_location(&mut l, (*existing_var).hwere, &mut loc);
+                    fprintf!(libc::stderr, c"%s:%d:%d: NOTE: the first declaration is located here\n", input_path, loc.line_number, loc.line_offset + 1);
                     return 69;
                 }
                 ds::array_push(&mut vars, AutoVar {
                     name,
                     offset: vars_offset,
-                    _hwere: l.where_firstchar,
+                    hwere: l.where_firstchar,
                 });
                 // TODO: support multiple auto declarations
-                // TODO: report var declaration duplicates
                 printf!(c"    sub rsp, 8\n");
                 if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
             } else {
@@ -343,6 +348,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
                     stb_c_lexer::get_token(&mut l);
                     if l.token == ')' as i64  {
+                        // TODO: report calling unknown functions
                         printf!(c"    call %s\n", name);
                         if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                     } else {
