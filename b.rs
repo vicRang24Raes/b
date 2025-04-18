@@ -51,8 +51,19 @@ pub mod libc {
     }
 }
 
+#[macro_use]
 pub mod nob {
     use core::ffi::{c_char};
+
+    #[macro_export]
+    macro_rules! shift {
+        ($ptr:ident, $len:ident) => {{
+            let result = *$ptr;
+            $ptr = $ptr.add(1);
+            $len -= 1;
+            result
+        }};
+    }
 
     #[repr(C)]
     pub struct String_Builder {
@@ -181,22 +192,20 @@ pub mod ds { // Data Structures
     }
 }
 
-const FILE_PATH: *const c_char = c"main.b".as_ptr();
-
-unsafe fn expect_clex(l: *const stb_c_lexer::stb_lexer, clex: i64) -> bool {
+unsafe fn expect_clex(l: *const stb_c_lexer::stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     if (*l).token != clex {
         // TODO: report to stderr
         let mut loc: stb_c_lexer::stb_lex_location = zeroed();
         stb_c_lexer::get_location(l, (*l).where_firstchar, &mut loc);
-        printf!(c"%s:%d:%d: ERROR: expected %ld, but got %ld\n", FILE_PATH, loc.line_number, loc.line_offset + 1, clex, (*l).token);
+        printf!(c"%s:%d:%d: ERROR: expected %ld, but got %ld\n", input_path, loc.line_number, loc.line_offset + 1, clex, (*l).token);
         return false
     }
     true
 }
 
-unsafe fn get_and_expect_clex(l: *mut stb_c_lexer::stb_lexer, clex: i64) -> bool {
+unsafe fn get_and_expect_clex(l: *mut stb_c_lexer::stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     stb_c_lexer::get_token(l);
-    expect_clex(l, clex)
+    expect_clex(l, input_path, clex)
 }
 
 #[derive(Clone, Copy)]
@@ -215,13 +224,27 @@ unsafe fn find_auto_var(vars: *mut [AutoVar], name: *const c_char) -> *mut AutoV
     return ptr::null_mut();
 }
 
+unsafe fn usage(program_name: *const c_char) {
+    printf!(c"Usage: %s <input.b>\n", program_name);
+}
+
 #[no_mangle]
-unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut c_char) -> i32 {
+unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
+    let program_name = shift!(_argv, _argc);
+
+    if _argc <= 0 {
+        usage(program_name);
+        printf!(c"ERROR: no input is provided\n");
+        return 69;
+    }
+
+    let input_path = shift!(_argv, _argc);
+
     let mut vars: ds::Array<AutoVar> = zeroed();
     let mut vars_offset: usize;
 
     let mut sb: nob::String_Builder = zeroed();
-    if !nob::read_entire_file(FILE_PATH, &mut sb) { return 1; }
+    if !nob::read_entire_file(input_path, &mut sb) { return 1; }
     let mut l: stb_c_lexer::stb_lexer = zeroed();
     let mut string_store: [c_char; 1024] = zeroed();
     stb_c_lexer::init(&mut l, sb.items, sb.items.add(sb.count), string_store.as_mut_ptr(), string_store.len() as i32);
@@ -236,12 +259,12 @@ unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut c_char) -> i32 {
         stb_c_lexer::get_token(&mut l);
         if l.token == stb_c_lexer::CLEX::eof as i64 { break 'func }
 
-        if !expect_clex(&mut l, stb_c_lexer::CLEX::id as i64) { return 1; }
+        if !expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
         printf!(c"public %s\n", l.string);
         printf!(c"%s:\n", l.string);
-        if !get_and_expect_clex(&mut l, '(' as i64) { return 1; }
-        if !get_and_expect_clex(&mut l, ')' as i64) { return 1; }
-        if !get_and_expect_clex(&mut l, '{' as i64) { return 1; }
+        if !get_and_expect_clex(&mut l, input_path, '(' as i64) { return 1; }
+        if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
+        if !get_and_expect_clex(&mut l, input_path, '{' as i64) { return 1; }
 
         printf!(c"    push rbp\n");
         printf!(c"    mov rbp, rsp\n");
@@ -256,14 +279,14 @@ unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut c_char) -> i32 {
                 printf!(c"    ret\n");
                 break 'body;
             }
-            if !expect_clex(&mut l, stb_c_lexer::CLEX::id as i64) { return 1; }
+            if !expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
             if libc::strcmp(l.string, c"extrn".as_ptr()) == 0 {
-                if !get_and_expect_clex(&mut l, stb_c_lexer::CLEX::id as i64) { return 1; }
+                if !get_and_expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
                 printf!(c"    extrn %s\n", l.string);
                 // TODO: support multiple extrn declarations
-                if !get_and_expect_clex(&mut l, ';' as i64) { return 1; }
+                if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
             } else if libc::strcmp(l.string, c"auto".as_ptr()) == 0 {
-                if !get_and_expect_clex(&mut l, stb_c_lexer::CLEX::id as i64) { return 1; }
+                if !get_and_expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
                 vars_offset += 8;
                 let name = libc::strdup(l.string);
                 let existing_var = find_auto_var(ds::array_slice(vars), name);
@@ -280,7 +303,7 @@ unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut c_char) -> i32 {
                 // TODO: support multiple auto declarations
                 // TODO: report var declaration duplicates
                 printf!(c"    sub rsp, 8\n");
-                if !get_and_expect_clex(&mut l, ';' as i64) { return 1; }
+                if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
             } else {
                 let name = libc::strdup(l.string);
                 let name_where = l.where_firstchar;
@@ -292,37 +315,37 @@ unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut c_char) -> i32 {
                         let mut loc: stb_c_lexer::stb_lex_location = zeroed();
                         stb_c_lexer::get_location(&mut l, name_where, &mut loc);
                         // TODO: report to stderr
-                        printf!(c"%s:%d:%d: ERROR: could not find variable `%s`\n", FILE_PATH, loc.line_number, loc.line_offset + 1, name);
+                        printf!(c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, name);
                         return 69;
                     }
 
                     // NOTE: expecting only int literal here for now
-                    if !get_and_expect_clex(&mut l, stb_c_lexer::CLEX::intlit as i64) { return 1; }
+                    if !get_and_expect_clex(&mut l, input_path, stb_c_lexer::CLEX::intlit as i64) { return 1; }
                     printf!(c"    mov QWORD [rbp-%zu], %d\n", (*var_def).offset, l.int_number);
-                    if !get_and_expect_clex(&mut l, ';' as i64) { return 1; }
+                    if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                 } else if l.token == '(' as i64 {
                     // NOTE: expecting only var read here for now
 
                     stb_c_lexer::get_token(&mut l);
                     if l.token == ')' as i64  {
                         printf!(c"    call %s\n", name);
-                        if !get_and_expect_clex(&mut l, ';' as i64) { return 1; }
+                        if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                     } else {
-                        if !expect_clex(&mut l, stb_c_lexer::CLEX::id as i64) { return 1; }
+                        if !expect_clex(&mut l, input_path, stb_c_lexer::CLEX::id as i64) { return 1; }
                         let var_def = find_auto_var(ds::array_slice(vars), l.string);
                         if var_def.is_null() {
                             let mut loc: stb_c_lexer::stb_lex_location = zeroed();
                             stb_c_lexer::get_location(&mut l, l.where_firstchar, &mut loc);
                             // TODO: report to stderr
-                            printf!(c"%s:%d:%d: ERROR: could not find variable `%s`\n", FILE_PATH, loc.line_number, loc.line_offset + 1, l.string);
+                            printf!(c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, l.string);
                             return 69;
                         }
 
                         printf!(c"    mov rdi, [rbp-%zu]\n", (*var_def).offset);
                         printf!(c"    call %s\n", name);
 
-                        if !get_and_expect_clex(&mut l, ')' as i64) { return 1; }
-                        if !get_and_expect_clex(&mut l, ';' as i64) { return 1; }
+                        if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
+                        if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                     }
                 } else {
                     printf!(c"TODO: stmt: report unexpected token\n");
