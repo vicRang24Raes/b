@@ -16,7 +16,12 @@ unsafe fn panic(_info: &PanicInfo) -> ! {
 pub mod libc {
     use core::ffi::*;
 
+    pub type FILE = c_void;
+
     extern "C" {
+        pub static stdin: *mut FILE;
+        pub static stdout: *mut FILE;
+        pub static stderr: *mut FILE;
         pub fn strcmp(s1: *const c_char, s2: *const c_char) -> c_int;
         pub fn abort() -> !;
         pub fn strdup(s: *const c_char) -> *mut c_char;
@@ -31,6 +36,18 @@ pub mod libc {
                 pub fn printf_raw(fmt: *const c_char, ...) -> c_int;
             }
             printf_raw($fmt.as_ptr() $($args)*)
+        }};
+    }
+
+    #[macro_export]
+    macro_rules! fprintf {
+        ($stream:expr, $fmt:literal $($args:tt)*) => {{
+            use core::ffi::c_int;
+            extern "C" {
+                #[link_name = "fprintf"]
+                pub fn fprintf_raw(stream: *mut libc::FILE, fmt: *const c_char, ...) -> c_int;
+            }
+            fprintf_raw($stream, $fmt.as_ptr() $($args)*)
         }};
     }
 
@@ -194,10 +211,9 @@ pub mod ds { // Data Structures
 
 unsafe fn expect_clex(l: *const stb_c_lexer::stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     if (*l).token != clex {
-        // TODO: report to stderr
         let mut loc: stb_c_lexer::stb_lex_location = zeroed();
         stb_c_lexer::get_location(l, (*l).where_firstchar, &mut loc);
-        printf!(c"%s:%d:%d: ERROR: expected %ld, but got %ld\n", input_path, loc.line_number, loc.line_offset + 1, clex, (*l).token);
+        fprintf!(libc::stderr, c"%s:%d:%d: ERROR: expected %ld, but got %ld\n", input_path, loc.line_number, loc.line_offset + 1, clex, (*l).token);
         return false
     }
     true
@@ -225,7 +241,7 @@ unsafe fn find_auto_var(vars: *mut [AutoVar], name: *const c_char) -> *mut AutoV
 }
 
 unsafe fn usage(program_name: *const c_char) {
-    printf!(c"Usage: %s <input.b>\n", program_name);
+    fprintf!(libc::stderr, c"Usage: %s <input.b>\n", program_name);
 }
 
 #[no_mangle]
@@ -234,7 +250,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
     if _argc <= 0 {
         usage(program_name);
-        printf!(c"ERROR: no input is provided\n");
+        fprintf!(libc::stderr, c"ERROR: no input is provided\n");
         return 69;
     }
 
@@ -314,8 +330,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     if var_def.is_null() {
                         let mut loc: stb_c_lexer::stb_lex_location = zeroed();
                         stb_c_lexer::get_location(&mut l, name_where, &mut loc);
-                        // TODO: report to stderr
-                        printf!(c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, name);
+                        fprintf!(libc::stderr, c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, name);
                         return 69;
                     }
 
@@ -336,8 +351,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         if var_def.is_null() {
                             let mut loc: stb_c_lexer::stb_lex_location = zeroed();
                             stb_c_lexer::get_location(&mut l, l.where_firstchar, &mut loc);
-                            // TODO: report to stderr
-                            printf!(c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, l.string);
+                            fprintf!(libc::stderr, c"%s:%d:%d: ERROR: could not find variable `%s`\n", input_path, loc.line_number, loc.line_offset + 1, l.string);
                             return 69;
                         }
 
@@ -348,7 +362,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                     }
                 } else {
-                    printf!(c"TODO: stmt: report unexpected token\n");
+                    fprintf!(libc::stderr, c"TODO: stmt: report unexpected token\n");
                     libc::abort()
                 }
             }
