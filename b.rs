@@ -231,7 +231,7 @@ unsafe fn display_token_temp(token: c_long) -> *mut c_char {
 
 unsafe fn expect_clex(l: *const stb_c_lexer::stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     if (*l).token != clex {
-        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected %s, but got %s\n", display_token_temp(clex), display_token_temp((*l).token));
+        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected `%s`, but got `%s`\n", display_token_temp(clex), display_token_temp((*l).token));
         return false
     }
     true
@@ -378,7 +378,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                     }
                 } else {
-                    diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token %ld\n", l.token);
+                    diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token `%s`\n", display_token_temp(l.token));
                     return 69;
                 }
             }
