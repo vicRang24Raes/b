@@ -18,3 +18,5 @@ nob.o: nob.h
 
 stb_c_lexer.o: stb_c_lexer.h
 	clang -g -x c -DSTB_C_LEXER_IMPLEMENTATION -c stb_c_lexer.h
+
+# TODO: use nob to build the project

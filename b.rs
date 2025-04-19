@@ -386,3 +386,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
     }
     0
 }
+
+// TODO: B lexing is different from the C one.
+//   Hack stb_c_lexer.h into stb_b_lexer.h
+// TODO: Create a roadmap based on the spec.
