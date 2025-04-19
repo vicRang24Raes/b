@@ -217,6 +217,7 @@ use core::ptr;
 use libc::*;
 use nob::*;
 use stb_c_lexer::*;
+use ds::*;
 
 macro_rules! diagf {
     ($l:expr, $path:expr, $where:expr, $fmt:literal $($args:tt)*) => {{
@@ -287,7 +288,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
     }
     let output_path = shift!(_argv, _argc);
 
-    let mut vars: ds::Array<AutoVar> = zeroed();
+    let mut vars: Array<AutoVar> = zeroed();
     let mut vars_offset: usize;
 
     let mut input: String_Builder = zeroed();
@@ -340,13 +341,13 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                 vars_offset += 8;
                 let name = strdup(l.string);
                 let name_where = l.where_firstchar;
-                let existing_var = find_auto_var(ds::array_slice(vars), name);
+                let existing_var = find_auto_var(array_slice(vars), name);
                 if !existing_var.is_null() {
                     diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
                     diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                     return 69;
                 }
-                ds::array_push(&mut vars, AutoVar {
+                array_push(&mut vars, AutoVar {
                     name,
                     offset: vars_offset,
                     hwere: l.where_firstchar,
@@ -360,7 +361,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
                 get_token(&mut l);
                 if l.token == '=' as i64 {
-                    let var_def = find_auto_var(ds::array_slice(vars), name);
+                    let var_def = find_auto_var(array_slice(vars), name);
                     if var_def.is_null() {
                         diagf!(&mut l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
                         return 69;
@@ -380,7 +381,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
                     } else {
                         if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
-                        let var_def = find_auto_var(ds::array_slice(vars), l.string);
+                        let var_def = find_auto_var(array_slice(vars), l.string);
                         if var_def.is_null() {
                             diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: could not find variable `%s`\n", l.string);
                             return 69;
