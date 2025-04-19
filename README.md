@@ -3,6 +3,10 @@
 > [!WARNING]
 > Compiler is not fully implemented yet.
 
+<p align=center>
+  <img src="./logo/logo.png" width=400>
+</p>
+
 Compiler for the B Programming Language implemented in [Crust](https://github.com/tsoding/crust)
 
 ## Dependencies
