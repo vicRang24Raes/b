@@ -5,7 +5,7 @@ main.o: main.asm
 	fasm main.asm main.o
 
 main.asm: main.b b
-	./b main.b | tee main.asm
+	./b main.b main.asm
 
 b: b.o nob.o stb_c_lexer.o
 	clang -g -o b b.o nob.o stb_c_lexer.o
