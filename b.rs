@@ -323,6 +323,8 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
     sb_appendf(&mut output, c"format ELF64\n".as_ptr());
     sb_appendf(&mut output, c"section \".text\" executable\n".as_ptr());
 
+    // TODO: are function also variables?
+    //   Maybe some sort of global variables.
     'func: loop {
         vars.count = 0;
         vars_offset = 0;
