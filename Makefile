@@ -10,7 +10,7 @@ hello.asm: hello.b b
 b: b.o nob.o stb_c_lexer.o
 	clang -g -o b b.o nob.o stb_c_lexer.o
 
-b.o: b.rs
+b.o: b.rs libc.rs crust.rs nob.rs stb_c_lexer.rs
 	rustc --edition 2021 -g -C opt-level=z --emit=obj -C panic="abort" b.rs
 
 nob.o: nob.h
