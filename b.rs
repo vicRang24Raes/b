@@ -374,6 +374,8 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
         if !expect_clex(&mut l, input_path, CLEX_id) { return 1; }
 
+        // TODO: don't allow functions and variables with keyword names
+
         get_token(&mut l);
         if l.token == '(' as c_long { // Function definition
             // TODO: functions with several parameters
