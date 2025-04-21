@@ -1,5 +1,6 @@
 #![no_main]
 #![no_std]
+#![allow(non_upper_case_globals)]
 extern crate core;
 
 #[panic_handler]
@@ -100,40 +101,47 @@ pub mod nob {
 pub mod stb_c_lexer {
     use core::ffi::{c_char, c_long, c_double, c_int};
 
-    #[repr(C)]
-    #[allow(non_camel_case_types)]
-    pub enum CLEX {
-        eof = 256,
-        parse_error,
-        intlit        ,
-        floatlit      ,
-        id            ,
-        dqstring      ,
-        sqstring      ,
-        charlit       ,
-        eq            ,
-        noteq         ,
-        lesseq        ,
-        greatereq     ,
-        andand        ,
-        oror          ,
-        shl           ,
-        shr           ,
-        plusplus      ,
-        minusminus    ,
-        pluseq        ,
-        minuseq       ,
-        muleq         ,
-        diveq         ,
-        modeq         ,
-        andeq         ,
-        oreq          ,
-        xoreq         ,
-        arrow         ,
-        eqarrow       ,
-        shleq,
-        shreq,
-        first_unused_token
+    macro_rules! non_soy_enum {
+        (iota = $value:expr,) => {};
+        (iota = $value:expr, $name:ident, $($tail:tt)*) => {
+            pub const $name: c_long = $value;
+            non_soy_enum!(iota = $value + 1, $($tail)*);
+        };
+    }
+
+    non_soy_enum! {
+        iota = 256              ,
+        CLEX_eof                ,
+        CLEX_parse_error        ,
+        CLEX_intlit             ,
+        CLEX_floatlit           ,
+        CLEX_id                 ,
+        CLEX_dqstring           ,
+        CLEX_sqstring           ,
+        CLEX_charlit            ,
+        CLEX_eq                 ,
+        CLEX_noteq              ,
+        CLEX_lesseq             ,
+        CLEX_greatereq          ,
+        CLEX_andand             ,
+        CLEX_oror               ,
+        CLEX_shl                ,
+        CLEX_shr                ,
+        CLEX_plusplus           ,
+        CLEX_minusminus         ,
+        CLEX_pluseq             ,
+        CLEX_minuseq            ,
+        CLEX_muleq              ,
+        CLEX_diveq              ,
+        CLEX_modeq              ,
+        CLEX_andeq              ,
+        CLEX_oreq               ,
+        CLEX_xoreq              ,
+        CLEX_arrow              ,
+        CLEX_eqarrow            ,
+        CLEX_shleq              ,
+        CLEX_shreq              ,
+        CLEX_first_unused_token ,
     }
 
     #[repr(C)]
@@ -241,24 +249,56 @@ macro_rules! todof {
     }}
 }
 
-unsafe fn display_token_temp(token: c_long) -> *mut c_char {
-    // TODO: port print_token() from stb_c_lexer.h to display more tokens
-    if token < 256 {
-        temp_sprintf(c"%c".as_ptr(), token)
-    } else {
-        temp_sprintf(c"%ld".as_ptr(), token)
+unsafe fn display_token_temp(token: c_long) -> *const c_char {
+    match token {
+        CLEX_id         => c"identifier".as_ptr(),
+        CLEX_eq         => c"==".as_ptr(),
+        CLEX_noteq      => c"!=".as_ptr(),
+        CLEX_lesseq     => c"<=".as_ptr(),
+        CLEX_greatereq  => c">=".as_ptr(),
+        CLEX_andand     => c"&&".as_ptr(),
+        CLEX_oror       => c"||".as_ptr(),
+        CLEX_shl        => c"<<".as_ptr(),
+        CLEX_shr        => c">>".as_ptr(),
+        CLEX_plusplus   => c"++".as_ptr(),
+        CLEX_minusminus => c"--".as_ptr(),
+        CLEX_arrow      => c"->".as_ptr(),
+        CLEX_andeq      => c"&=".as_ptr(),
+        CLEX_oreq       => c"|=".as_ptr(),
+        CLEX_xoreq      => c"^=".as_ptr(),
+        CLEX_pluseq     => c"+=".as_ptr(),
+        CLEX_minuseq    => c"-=".as_ptr(),
+        CLEX_muleq      => c"*=".as_ptr(),
+        CLEX_diveq      => c"/=".as_ptr(),
+        CLEX_modeq      => c"%%=".as_ptr(),
+        CLEX_shleq      => c"<<=".as_ptr(),
+        CLEX_shreq      => c">>=".as_ptr(),
+        CLEX_eqarrow    => c"=>".as_ptr(),
+        // TODO: display_token_temp doesn't escape quoted literals
+        CLEX_dqstring   => c"string literal".as_ptr(),
+        CLEX_sqstring   => c"single quote literal".as_ptr(), // TODO: How are those different from CLEX_charlit?
+        CLEX_charlit    => c"character literal".as_ptr(),
+        CLEX_intlit     => c"integer literal".as_ptr(),
+        CLEX_floatlit   => c"floating-point literal".as_ptr(),
+        _ => {
+            if token >= 0 && token < 256 {
+                temp_sprintf(c"`%c`".as_ptr(), token)
+            } else {
+                temp_sprintf(c"<<<UNKNOWN TOKEN %ld>>>".as_ptr(), token)
+            }
+        }
     }
 }
 
 unsafe fn expect_clex(l: *const stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     if (*l).token != clex {
-        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected `%s`, but got `%s`\n", display_token_temp(clex), display_token_temp((*l).token));
+        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected %s, but got %s\n", display_token_temp(clex), display_token_temp((*l).token));
         return false
     }
     true
 }
 
-unsafe fn get_and_expect_clex(l: *mut stb_lexer, input_path: *const c_char, clex: i64) -> bool {
+unsafe fn get_and_expect_clex(l: *mut stb_lexer, input_path: *const c_char, clex: c_long) -> bool {
     get_token(l);
     expect_clex(l, input_path, clex)
 }
@@ -330,15 +370,15 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
         vars_offset = 0;
 
         get_token(&mut l);
-        if l.token == CLEX::eof as i64 { break 'def }
+        if l.token == CLEX_eof { break 'def }
 
-        if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+        if !expect_clex(&mut l, input_path, CLEX_id) { return 1; }
 
         get_token(&mut l);
-        if l.token == '(' as i64 { // Function definition
+        if l.token == '(' as c_long { // Function definition
             // TODO: functions with several parameters
-            if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
-            if !get_and_expect_clex(&mut l, input_path, '{' as i64) { return 1; }
+            if !get_and_expect_clex(&mut l, input_path, ')' as c_long) { return 1; }
+            if !get_and_expect_clex(&mut l, input_path, '{' as c_long) { return 1; }
 
             sb_appendf(&mut output, c"public %s\n".as_ptr(), l.string);
             sb_appendf(&mut output, c"%s:\n".as_ptr(), l.string);
@@ -348,16 +388,16 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
             'body: loop {
                 // Statement
                 get_token(&mut l);
-                if l.token == '}' as i64 {
+                if l.token == '}' as c_long {
                     sb_appendf(&mut output, c"    add rsp, %zu\n".as_ptr(), vars_offset);
                     sb_appendf(&mut output, c"    pop rbp\n".as_ptr(), vars_offset);
                     sb_appendf(&mut output, c"    mov rax, 0\n".as_ptr());
                     sb_appendf(&mut output, c"    ret\n".as_ptr());
                     break 'body;
                 }
-                if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                if !expect_clex(&mut l, input_path, CLEX_id) { return 1; }
                 if strcmp(l.string, c"extrn".as_ptr()) == 0 {
-                    if !get_and_expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                    if !get_and_expect_clex(&mut l, input_path, CLEX_id) { return 1; }
                     // TODO: support multiple extrn declarations
 
                     let name = strdup(l.string);
@@ -377,9 +417,9 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     });
 
                     sb_appendf(&mut output, c"    extrn %s\n".as_ptr(), l.string);
-                    if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
+                    if !get_and_expect_clex(&mut l, input_path, ';' as c_long) { return 1; }
                 } else if strcmp(l.string, c"auto".as_ptr()) == 0 {
-                    if !get_and_expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                    if !get_and_expect_clex(&mut l, input_path, CLEX_id) { return 1; }
                     vars_offset += 8;
                     let name = strdup(l.string);
                     let name_where = l.where_firstchar;
@@ -397,13 +437,13 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     });
                     // TODO: support multiple auto declarations
                     sb_appendf(&mut output, c"    sub rsp, 8\n".as_ptr());
-                    if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
+                    if !get_and_expect_clex(&mut l, input_path, ';' as c_long) { return 1; }
                 } else {
                     let name = strdup(l.string);
                     let name_where = l.where_firstchar;
 
                     get_token(&mut l);
-                    if l.token == '=' as i64 {
+                    if l.token == '=' as c_long {
                         let var_def = find_var(array_slice(vars), name);
                         if var_def.is_null() {
                             diagf!(&mut l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
@@ -411,7 +451,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         }
 
                         // NOTE: expecting only int literal here for now
-                        if !get_and_expect_clex(&mut l, input_path, CLEX::intlit as i64) { return 1; }
+                        if !get_and_expect_clex(&mut l, input_path, CLEX_intlit) { return 1; }
                         match (*var_def).storage {
                             Storage::Auto => {
                                 sb_appendf(&mut output, c"    mov QWORD [rbp-%zu], %d\n".as_ptr(), (*var_def).offset, l.int_number);
@@ -421,8 +461,8 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                             }
                         }
 
-                        if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
-                    } else if l.token == '(' as i64 {
+                        if !get_and_expect_clex(&mut l, input_path, ';' as c_long) { return 1; }
+                    } else if l.token == '(' as c_long {
                         let var_def = find_var(array_slice(vars), name);
                         if var_def.is_null() {
                             diagf!(&mut l, input_path, name_where, c"ERROR: could not find function `%s`\n", name);
@@ -430,10 +470,10 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                         }
 
                         get_token(&mut l);
-                        if l.token != ')' as i64  {
+                        if l.token != ')' as c_long  {
                             // TODO: function calls with multiple arguments
                             // NOTE: expecting only var read here for now
-                            if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                            if !expect_clex(&mut l, input_path, CLEX_id) { return 1; }
                             let var_def = find_var(array_slice(vars), l.string);
                             if var_def.is_null() {
                                 diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: could not find variable `%s`\n", l.string);
@@ -441,7 +481,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                             }
 
                             sb_appendf(&mut output, c"    mov rdi, [rbp-%zu]\n".as_ptr(), (*var_def).offset);
-                            if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
+                            if !get_and_expect_clex(&mut l, input_path, ')' as c_long) { return 1; }
                         }
 
                         match (*var_def).storage {
@@ -453,9 +493,9 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                             }
                         }
 
-                        if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
+                        if !get_and_expect_clex(&mut l, input_path, ';' as c_long) { return 1; }
                     } else {
-                        diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token `%s`\n", display_token_temp(l.token));
+                        diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token %s\n", display_token_temp(l.token));
                         return 69;
                     }
                 }
