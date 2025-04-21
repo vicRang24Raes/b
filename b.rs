@@ -46,7 +46,7 @@ macro_rules! todof {
     }}
 }
 
-unsafe fn display_token_temp(token: c_long) -> *const c_char {
+unsafe fn display_token_kind_temp(token: c_long) -> *const c_char {
     match token {
         CLEX_id         => c"identifier".as_ptr(),
         CLEX_eq         => c"==".as_ptr(),
@@ -71,7 +71,6 @@ unsafe fn display_token_temp(token: c_long) -> *const c_char {
         CLEX_shleq      => c"<<=".as_ptr(),
         CLEX_shreq      => c">>=".as_ptr(),
         CLEX_eqarrow    => c"=>".as_ptr(),
-        // TODO: display_token_temp doesn't escape quoted literals
         CLEX_dqstring   => c"string literal".as_ptr(),
         CLEX_sqstring   => c"single quote literal".as_ptr(), // TODO: How are those different from CLEX_charlit?
         CLEX_charlit    => c"character literal".as_ptr(),
@@ -89,7 +88,7 @@ unsafe fn display_token_temp(token: c_long) -> *const c_char {
 
 unsafe fn expect_clex(l: *const stb_lexer, input_path: *const c_char, clex: i64) -> bool {
     if (*l).token != clex {
-        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected %s, but got %s\n", display_token_temp(clex), display_token_temp((*l).token));
+        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: expected %s, but got %s\n", display_token_kind_temp(clex), display_token_kind_temp((*l).token));
         return false
     }
     true
@@ -329,7 +328,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
                         if !get_and_expect_clex(&mut l, input_path, ';' as c_long) { return 1; }
                     } else {
-                        diagf!(&l, input_path, l.where_firstchar, c"ERROR: unexpected token %s\n", display_token_temp(l.token));
+                        diagf!(&l, input_path, l.where_firstchar, c"ERROR: unexpected token %s\n", display_token_kind_temp(l.token));
                         return 69;
                     }
                 }
