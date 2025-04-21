@@ -1,11 +1,11 @@
-main: main.o
-	clang -no-pie -o main main.o
+hello: hello.o
+	clang -no-pie -o hello hello.o
 
-main.o: main.asm
-	fasm main.asm main.o
+hello.o: hello.asm
+	fasm hello.asm hello.o
 
-main.asm: main.b b
-	./b main.b main.asm
+hello.asm: hello.b b
+	./b hello.b hello.asm
 
 b: b.o nob.o stb_c_lexer.o
 	clang -g -o b b.o nob.o stb_c_lexer.o
