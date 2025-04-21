@@ -128,6 +128,26 @@ unsafe fn usage(program_name: *const c_char) {
     fprintf!(stderr, c"Usage: %s <input.b> <output.asm>\n", program_name);
 }
 
+const B_KEYWORDS: *const [*const c_char] = &[
+    c"auto".as_ptr(),
+    c"extrn".as_ptr(),
+    c"case".as_ptr(),
+    c"if".as_ptr(),
+    c"while".as_ptr(),
+    c"switch".as_ptr(),
+    c"goto".as_ptr(),
+    c"return".as_ptr(),
+];
+
+unsafe fn is_keyword(name: *const c_char) -> bool {
+    for i in 0..B_KEYWORDS.len() {
+        if strcmp((*B_KEYWORDS)[i], name) == 0 {
+            return true
+        }
+    }
+    false
+}
+
 #[no_mangle]
 unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
     let program_name = shift!(_argv, _argc);
@@ -171,18 +191,32 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
         if !expect_clex(&mut l, input_path, CLEX_id) { return 1; }
 
-        // TODO: don't allow functions and variables with keyword names
+        let symbol_name = strdup(l.string);
+        let symbol_name_where = l.where_firstchar;
+
+        if is_keyword(l.string) {
+            diagf!(&l, input_path, symbol_name_where, c"ERROR: Trying to define a reserved keyword `%s` as a symbol. Please choose a different name.\n", symbol_name);
+            diagf!(&l, input_path, symbol_name_where, c"NOTE: Reserved keywords are: ");
+            for i in 0..B_KEYWORDS.len() {
+                if i > 0 {
+                    fprintf!(stderr, c", ");
+                }
+                fprintf!(stderr, c"`%s`", (*B_KEYWORDS)[i]);
+            }
+            fprintf!(stderr, c"\n");
+            return 69;
+        }
 
         get_token(&mut l);
         if l.token == '(' as c_long { // Function definition
+            sb_appendf(&mut output, c"public %s\n".as_ptr(), symbol_name);
+            sb_appendf(&mut output, c"%s:\n".as_ptr(), symbol_name);
+            sb_appendf(&mut output, c"    push rbp\n".as_ptr());
+            sb_appendf(&mut output, c"    mov rbp, rsp\n".as_ptr());
+
             // TODO: functions with several parameters
             if !get_and_expect_clex(&mut l, input_path, ')' as c_long) { return 1; }
             if !get_and_expect_clex(&mut l, input_path, '{' as c_long) { return 1; }
-
-            sb_appendf(&mut output, c"public %s\n".as_ptr(), l.string);
-            sb_appendf(&mut output, c"%s:\n".as_ptr(), l.string);
-            sb_appendf(&mut output, c"    push rbp\n".as_ptr());
-            sb_appendf(&mut output, c"    mov rbp, rsp\n".as_ptr());
 
             'body: loop {
                 // Statement
@@ -203,8 +237,8 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     let name_where = l.where_firstchar;
                     let existing_var = find_var(array_slice(vars), name);
                     if !existing_var.is_null() {
-                        diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
-                        diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
+                        diagf!(&l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
+                        diagf!(&l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                         return 69;
                     }
 
@@ -224,8 +258,8 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     let name_where = l.where_firstchar;
                     let existing_var = find_var(array_slice(vars), name);
                     if !existing_var.is_null() {
-                        diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
-                        diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
+                        diagf!(&l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
+                        diagf!(&l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                         return 69;
                     }
                     array_push(&mut vars, Var {
@@ -245,7 +279,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     if l.token == '=' as c_long {
                         let var_def = find_var(array_slice(vars), name);
                         if var_def.is_null() {
-                            diagf!(&mut l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
+                            diagf!(&l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
                             return 69;
                         }
 
@@ -256,7 +290,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                                 sb_appendf(&mut output, c"    mov QWORD [rbp-%zu], %d\n".as_ptr(), (*var_def).offset, l.int_number);
                             }
                             Storage::External => {
-                                todof!(&mut l, input_path, name_where, c"assignment to external variables\n");
+                                todof!(&l, input_path, name_where, c"assignment to external variables\n");
                             }
                         }
 
@@ -264,7 +298,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     } else if l.token == '(' as c_long {
                         let var_def = find_var(array_slice(vars), name);
                         if var_def.is_null() {
-                            diagf!(&mut l, input_path, name_where, c"ERROR: could not find function `%s`\n", name);
+                            diagf!(&l, input_path, name_where, c"ERROR: could not find function `%s`\n", name);
                             return 69;
                         }
 
@@ -275,7 +309,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                             if !expect_clex(&mut l, input_path, CLEX_id) { return 1; }
                             let var_def = find_var(array_slice(vars), l.string);
                             if var_def.is_null() {
-                                diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: could not find variable `%s`\n", l.string);
+                                diagf!(&l, input_path, l.where_firstchar, c"ERROR: could not find variable `%s`\n", l.string);
                                 return 69;
                             }
 
@@ -288,13 +322,13 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                                 sb_appendf(&mut output, c"    call %s\n".as_ptr(), name);
                             }
                             Storage::Auto => {
-                                todof!(&mut l, input_path, name_where, c"calling functions from auto variables\n");
+                                todof!(&l, input_path, name_where, c"calling functions from auto variables\n");
                             }
                         }
 
                         if !get_and_expect_clex(&mut l, input_path, ';' as c_long) { return 1; }
                     } else {
-                        diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token %s\n", display_token_temp(l.token));
+                        diagf!(&l, input_path, l.where_firstchar, c"ERROR: unexpected token %s\n", display_token_temp(l.token));
                         return 69;
                     }
                 }
