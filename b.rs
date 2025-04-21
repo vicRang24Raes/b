@@ -11,55 +11,19 @@ unsafe fn panic(_info: &PanicInfo) -> ! {
 #[macro_use]
 pub mod libc;
 #[macro_use]
+pub mod crust;
+#[macro_use]
 pub mod nob;
 pub mod stb_c_lexer;
-
-pub mod ds { // Data Structures
-    use crate::libc;
-    use core::slice;
-    use core::ptr;
-
-    #[repr(C)]
-    #[derive(Clone, Copy)]
-    pub struct Array<T> {
-        pub items: *mut T,
-        pub count: usize,
-        pub capacity: usize,
-    }
-
-    pub unsafe fn array_slice<T>(xs: Array<T>) -> *mut [T] {
-        slice::from_raw_parts_mut(xs.items, xs.count)
-    }
-
-    pub unsafe fn array_push<T>(xs: *mut Array<T>, item: T) {
-        if (*xs).count >= (*xs).capacity {
-            if (*xs).capacity == 0 {
-                (*xs).capacity = 256;
-            } else {
-                (*xs).capacity *= 2;
-            }
-            (*xs).items = libc::realloc_items((*xs).items, (*xs).capacity);
-        }
-        *((*xs).items.add((*xs).count)) = item;
-        (*xs).count += 1;
-    }
-
-    pub unsafe fn array_destroy<T>(xs: *mut Array<T>) {
-        libc::free((*xs).items);
-        (*xs).items = ptr::null_mut();
-        (*xs).count = 0;
-        (*xs).capacity = 0;
-    }
-}
 
 use core::panic::PanicInfo;
 use core::ffi::*;
 use core::mem::zeroed;
 use core::ptr;
 use libc::*;
+use crust::*;
 use nob::*;
 use stb_c_lexer::*;
-use ds::*;
 
 macro_rules! diagf {
     ($l:expr, $path:expr, $where:expr, $fmt:literal $($args:tt)*) => {{
