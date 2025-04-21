@@ -194,6 +194,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
         let symbol_name = strdup(l.string);
         let symbol_name_where = l.where_firstchar;
 
+        // TODO: maybe the keywords should be identified on the level of lexing
         if is_keyword(l.string) {
             diagf!(&l, input_path, symbol_name_where, c"ERROR: Trying to define a reserved keyword `%s` as a symbol. Please choose a different name.\n", symbol_name);
             diagf!(&l, input_path, symbol_name_where, c"NOTE: Reserved keywords are: ");
