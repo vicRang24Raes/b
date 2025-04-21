@@ -325,137 +325,143 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
     // TODO: are function also variables?
     //   Maybe some sort of global variables.
-    'func: loop {
+    'def: loop {
         vars.count = 0;
         vars_offset = 0;
 
         get_token(&mut l);
-        if l.token == CLEX::eof as i64 { break 'func }
+        if l.token == CLEX::eof as i64 { break 'def }
 
         if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
-        sb_appendf(&mut output, c"public %s\n".as_ptr(), l.string);
-        sb_appendf(&mut output, c"%s:\n".as_ptr(), l.string);
-        if !get_and_expect_clex(&mut l, input_path, '(' as i64) { return 1; }
-        if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
-        if !get_and_expect_clex(&mut l, input_path, '{' as i64) { return 1; }
 
-        sb_appendf(&mut output, c"    push rbp\n".as_ptr());
-        sb_appendf(&mut output, c"    mov rbp, rsp\n".as_ptr());
+        get_token(&mut l);
+        if l.token == '(' as i64 { // Function definition
+            // TODO: functions with several parameters
+            if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
+            if !get_and_expect_clex(&mut l, input_path, '{' as i64) { return 1; }
 
-        'body: loop {
-            // Statement
-            get_token(&mut l);
-            if l.token == '}' as i64 {
-                sb_appendf(&mut output, c"    add rsp, %zu\n".as_ptr(), vars_offset);
-                sb_appendf(&mut output, c"    pop rbp\n".as_ptr(), vars_offset);
-                sb_appendf(&mut output, c"    mov rax, 0\n".as_ptr());
-                sb_appendf(&mut output, c"    ret\n".as_ptr());
-                break 'body;
-            }
-            if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
-            if strcmp(l.string, c"extrn".as_ptr()) == 0 {
-                if !get_and_expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
-                // TODO: support multiple extrn declarations
+            sb_appendf(&mut output, c"public %s\n".as_ptr(), l.string);
+            sb_appendf(&mut output, c"%s:\n".as_ptr(), l.string);
+            sb_appendf(&mut output, c"    push rbp\n".as_ptr());
+            sb_appendf(&mut output, c"    mov rbp, rsp\n".as_ptr());
 
-                let name = strdup(l.string);
-                let name_where = l.where_firstchar;
-                let existing_var = find_var(array_slice(vars), name);
-                if !existing_var.is_null() {
-                    diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
-                    diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
-                    return 69;
-                }
-
-                array_push(&mut vars, Var {
-                    name,
-                    storage: Storage::External,
-                    offset: 0,  // Irrelevant for external variables
-                    hwere: l.where_firstchar,
-                });
-
-                sb_appendf(&mut output, c"    extrn %s\n".as_ptr(), l.string);
-                if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
-            } else if strcmp(l.string, c"auto".as_ptr()) == 0 {
-                if !get_and_expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
-                vars_offset += 8;
-                let name = strdup(l.string);
-                let name_where = l.where_firstchar;
-                let existing_var = find_var(array_slice(vars), name);
-                if !existing_var.is_null() {
-                    diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
-                    diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
-                    return 69;
-                }
-                array_push(&mut vars, Var {
-                    name,
-                    storage: Storage::Auto,
-                    offset: vars_offset,
-                    hwere: l.where_firstchar,
-                });
-                // TODO: support multiple auto declarations
-                sb_appendf(&mut output, c"    sub rsp, 8\n".as_ptr());
-                if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
-            } else {
-                let name = strdup(l.string);
-                let name_where = l.where_firstchar;
-
+            'body: loop {
+                // Statement
                 get_token(&mut l);
-                if l.token == '=' as i64 {
-                    let var_def = find_var(array_slice(vars), name);
-                    if var_def.is_null() {
-                        diagf!(&mut l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
+                if l.token == '}' as i64 {
+                    sb_appendf(&mut output, c"    add rsp, %zu\n".as_ptr(), vars_offset);
+                    sb_appendf(&mut output, c"    pop rbp\n".as_ptr(), vars_offset);
+                    sb_appendf(&mut output, c"    mov rax, 0\n".as_ptr());
+                    sb_appendf(&mut output, c"    ret\n".as_ptr());
+                    break 'body;
+                }
+                if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                if strcmp(l.string, c"extrn".as_ptr()) == 0 {
+                    if !get_and_expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                    // TODO: support multiple extrn declarations
+
+                    let name = strdup(l.string);
+                    let name_where = l.where_firstchar;
+                    let existing_var = find_var(array_slice(vars), name);
+                    if !existing_var.is_null() {
+                        diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
+                        diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                         return 69;
                     }
 
-                    // NOTE: expecting only int literal here for now
-                    if !get_and_expect_clex(&mut l, input_path, CLEX::intlit as i64) { return 1; }
-                    match (*var_def).storage {
-                        Storage::Auto => {
-                            sb_appendf(&mut output, c"    mov QWORD [rbp-%zu], %d\n".as_ptr(), (*var_def).offset, l.int_number);
-                        }
-                        Storage::External => {
-                            todof!(&mut l, input_path, name_where, c"assignment to external variables\n");
-                        }
-                    }
+                    array_push(&mut vars, Var {
+                        name,
+                        storage: Storage::External,
+                        offset: 0,  // Irrelevant for external variables
+                        hwere: l.where_firstchar,
+                    });
 
+                    sb_appendf(&mut output, c"    extrn %s\n".as_ptr(), l.string);
                     if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
-                } else if l.token == '(' as i64 {
-                    let var_def = find_var(array_slice(vars), name);
-                    if var_def.is_null() {
-                        diagf!(&mut l, input_path, name_where, c"ERROR: could not find function `%s`\n", name);
+                } else if strcmp(l.string, c"auto".as_ptr()) == 0 {
+                    if !get_and_expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                    vars_offset += 8;
+                    let name = strdup(l.string);
+                    let name_where = l.where_firstchar;
+                    let existing_var = find_var(array_slice(vars), name);
+                    if !existing_var.is_null() {
+                        diagf!(&mut l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
+                        diagf!(&mut l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                         return 69;
                     }
+                    array_push(&mut vars, Var {
+                        name,
+                        storage: Storage::Auto,
+                        offset: vars_offset,
+                        hwere: l.where_firstchar,
+                    });
+                    // TODO: support multiple auto declarations
+                    sb_appendf(&mut output, c"    sub rsp, 8\n".as_ptr());
+                    if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
+                } else {
+                    let name = strdup(l.string);
+                    let name_where = l.where_firstchar;
 
                     get_token(&mut l);
-                    if l.token != ')' as i64  {
-                        // TODO: function calls with multiple arguments
-                        // NOTE: expecting only var read here for now
-                        if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
-                        let var_def = find_var(array_slice(vars), l.string);
+                    if l.token == '=' as i64 {
+                        let var_def = find_var(array_slice(vars), name);
                         if var_def.is_null() {
-                            diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: could not find variable `%s`\n", l.string);
+                            diagf!(&mut l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
                             return 69;
                         }
 
-                        sb_appendf(&mut output, c"    mov rdi, [rbp-%zu]\n".as_ptr(), (*var_def).offset);
-                        if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
-                    }
-
-                    match (*var_def).storage {
-                        Storage::External => {
-                            sb_appendf(&mut output, c"    call %s\n".as_ptr(), name);
+                        // NOTE: expecting only int literal here for now
+                        if !get_and_expect_clex(&mut l, input_path, CLEX::intlit as i64) { return 1; }
+                        match (*var_def).storage {
+                            Storage::Auto => {
+                                sb_appendf(&mut output, c"    mov QWORD [rbp-%zu], %d\n".as_ptr(), (*var_def).offset, l.int_number);
+                            }
+                            Storage::External => {
+                                todof!(&mut l, input_path, name_where, c"assignment to external variables\n");
+                            }
                         }
-                        Storage::Auto => {
-                            todof!(&mut l, input_path, name_where, c"calling functions from auto variables\n");
-                        }
-                    }
 
-                    if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
-                } else {
-                    diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token `%s`\n", display_token_temp(l.token));
-                    return 69;
+                        if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
+                    } else if l.token == '(' as i64 {
+                        let var_def = find_var(array_slice(vars), name);
+                        if var_def.is_null() {
+                            diagf!(&mut l, input_path, name_where, c"ERROR: could not find function `%s`\n", name);
+                            return 69;
+                        }
+
+                        get_token(&mut l);
+                        if l.token != ')' as i64  {
+                            // TODO: function calls with multiple arguments
+                            // NOTE: expecting only var read here for now
+                            if !expect_clex(&mut l, input_path, CLEX::id as i64) { return 1; }
+                            let var_def = find_var(array_slice(vars), l.string);
+                            if var_def.is_null() {
+                                diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: could not find variable `%s`\n", l.string);
+                                return 69;
+                            }
+
+                            sb_appendf(&mut output, c"    mov rdi, [rbp-%zu]\n".as_ptr(), (*var_def).offset);
+                            if !get_and_expect_clex(&mut l, input_path, ')' as i64) { return 1; }
+                        }
+
+                        match (*var_def).storage {
+                            Storage::External => {
+                                sb_appendf(&mut output, c"    call %s\n".as_ptr(), name);
+                            }
+                            Storage::Auto => {
+                                todof!(&mut l, input_path, name_where, c"calling functions from auto variables\n");
+                            }
+                        }
+
+                        if !get_and_expect_clex(&mut l, input_path, ';' as i64) { return 1; }
+                    } else {
+                        diagf!(&mut l, input_path, l.where_firstchar, c"ERROR: unexpected token `%s`\n", display_token_temp(l.token));
+                        return 69;
+                    }
                 }
             }
+        } else { // Variable definition
+            todof!(&l, input_path, l.where_firstchar, c"variable definitions\n");
         }
     }
     if !write_entire_file(output_path, output.items as *const c_void, output.count) { return 69 }
