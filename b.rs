@@ -110,7 +110,7 @@ enum Storage {
 #[derive(Clone, Copy)]
 struct Var {
     name: *const c_char,
-    offset: usize,
+    index: usize,
     hwere: *mut c_char,
     storage: Storage,
 }
@@ -197,9 +197,9 @@ unsafe fn generate_fasm_x86_64_linux_func_prolog(name: *const c_char, output: *m
     sb_appendf(output, c"    mov rbp, rsp\n".as_ptr());
 }
 
-unsafe fn generate_fasm_x86_64_linux_func_epilog(output: *mut String_Builder, vars_offset: usize) {
-    sb_appendf(output, c"    add rsp, %zu\n".as_ptr(), vars_offset);
-    sb_appendf(output, c"    pop rbp\n".as_ptr(), vars_offset);
+unsafe fn generate_fasm_x86_64_linux_func_epilog(output: *mut String_Builder, vars_count: usize) {
+    sb_appendf(output, c"    add rsp, %zu\n".as_ptr(), vars_count*8);
+    sb_appendf(output, c"    pop rbp\n".as_ptr());
     sb_appendf(output, c"    mov rax, 0\n".as_ptr());
     sb_appendf(output, c"    ret\n".as_ptr());
 }
@@ -226,9 +226,8 @@ unsafe fn generate_fasm_x86_64_linux_func_body(body: *const [Op], output: *mut S
     }
 }
 
-unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: *mut Array<Var>, vars_offset: *mut usize, func_body: *mut Array<Op>) -> bool {
+unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: *mut Array<Var>, func_body: *mut Array<Op>) -> bool {
     (*vars).count = 0;
-    (*vars_offset) = 0;
     loop {
         // Statement
         stb_c_lexer_get_token(l);
@@ -252,7 +251,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
             array_push(vars, Var {
                 name,
                 storage: Storage::External,
-                offset: 0,  // Irrelevant for external variables
+                index: 0,  // Irrelevant for external variables
                 hwere: (*l).where_firstchar,
             });
 
@@ -260,7 +259,6 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
             if !get_and_expect_clex(l, input_path, ';' as c_long) { return false; }
         } else if strcmp((*l).string, c"auto".as_ptr()) == 0 {
             if !get_and_expect_clex(l, input_path, CLEX_id) { return false; }
-            (*vars_offset) += 8;
             let name = strdup((*l).string);
             let name_where = (*l).where_firstchar;
             let existing_var = find_var(array_slice(*vars), name);
@@ -272,7 +270,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
             array_push(vars, Var {
                 name,
                 storage: Storage::Auto,
-                offset: (*vars_offset),
+                index: (*vars).count,
                 hwere: (*l).where_firstchar,
             });
             // TODO: support multiple auto declarations
@@ -294,8 +292,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                 if !get_and_expect_clex(l, input_path, CLEX_intlit) { return false; }
                 match (*var_def).storage {
                     Storage::Auto => {
-                        // TODO: store var_def.offset in words to prevent this /8 hack
-                        array_push(func_body, Op::AutoAssign((*var_def).offset/8, (*l).int_number));
+                        array_push(func_body, Op::AutoAssign((*var_def).index, (*l).int_number));
                     }
                     Storage::External => {
                         todof!(l, input_path, name_where, c"assignment to external variables\n");
@@ -321,8 +318,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                         diagf!(l, input_path, (*l).where_firstchar, c"ERROR: could not find variable `%s`\n", (*l).string);
                         return false;
                     }
-                    // TODO: store var_def.offset in words to prevent this /8 hack
-                    arg = Some((*var_def).offset/8);
+                    arg = Some((*var_def).index);
                     if !get_and_expect_clex(l, input_path, ')' as c_long) { return false; }
                 }
 
@@ -363,7 +359,6 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
     let output_path = shift!(_argv, _argc);
 
     let mut vars: Array<Var> = zeroed();
-    let mut vars_offset: usize = 0;
     let mut func_body: Array<Op> = zeroed();
 
     let mut input: String_Builder = zeroed();
@@ -408,9 +403,9 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
             if !get_and_expect_clex(&mut l, input_path, '{' as c_long) { return 1; }
 
             generate_fasm_x86_64_linux_func_prolog(symbol_name, &mut output);
-            if !compile_func_body(&mut l, input_path, &mut vars, &mut vars_offset, &mut func_body) { return 1; }
+            if !compile_func_body(&mut l, input_path, &mut vars, &mut func_body) { return 1; }
             generate_fasm_x86_64_linux_func_body(array_slice(func_body), &mut output);
-            generate_fasm_x86_64_linux_func_epilog(&mut output, vars_offset);
+            generate_fasm_x86_64_linux_func_epilog(&mut output, vars.count);
 
             func_body.count = 0;
         } else { // Variable definition
