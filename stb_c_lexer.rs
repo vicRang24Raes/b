@@ -65,9 +65,9 @@ pub struct stb_lex_location {
 
 extern "C" {
     #[link_name="stb_c_lexer_init"]
-    pub fn init(lexer: *mut stb_lexer, input_stream: *const c_char, input_stream_end: *const c_char, string_store: *mut c_char, store_length: c_int);
+    pub fn stb_c_lexer_init(lexer: *mut stb_lexer, input_stream: *const c_char, input_stream_end: *const c_char, string_store: *mut c_char, store_length: c_int);
     #[link_name="stb_c_lexer_get_token"]
-    pub fn get_token(lexer: *mut stb_lexer) -> c_int;
+    pub fn stb_c_lexer_get_token(lexer: *mut stb_lexer) -> c_int;
     #[link_name="stb_c_lexer_get_location"]
-    pub fn get_location(lexer: *const stb_lexer, hwere: *const c_char, loc: *mut stb_lex_location);
+    pub fn stb_c_lexer_get_location(lexer: *const stb_lexer, hwere: *const c_char, loc: *mut stb_lex_location);
 }

@@ -28,7 +28,7 @@ use stb_c_lexer::*;
 macro_rules! diagf {
     ($l:expr, $path:expr, $where:expr, $fmt:literal $($args:tt)*) => {{
         let mut loc: stb_lex_location = zeroed();
-        get_location($l, $where, &mut loc);
+        stb_c_lexer_get_location($l, $where, &mut loc);
         fprintf!(stderr, c"%s:%d:%d: ", $path, loc.line_number, loc.line_offset + 1);
         fprintf!(stderr, $fmt $($args)*);
     }};
@@ -38,7 +38,7 @@ macro_rules! todof {
     ($l:expr, $path:expr, $where:expr, $fmt:literal $($args:tt)*) => {{
         let file = file!();
         let mut loc: stb_lex_location = zeroed();
-        get_location($l, $where, &mut loc);
+        stb_c_lexer_get_location($l, $where, &mut loc);
         fprintf!(stderr, c"%s:%d:%d: TODO: ", $path, loc.line_number, loc.line_offset + 1);
         fprintf!(stderr, $fmt $($args)*);
         fprintf!(stderr, c"%.*s:%d: INFO: implementation should go here\n", file.len(), file.as_ptr(), line!());
@@ -96,7 +96,7 @@ unsafe fn expect_clex(l: *const stb_lexer, input_path: *const c_char, clex: i64)
 }
 
 unsafe fn get_and_expect_clex(l: *mut stb_lexer, input_path: *const c_char, clex: c_long) -> bool {
-    get_token(l);
+    stb_c_lexer_get_token(l);
     expect_clex(l, input_path, clex)
 }
 
@@ -174,7 +174,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
     let mut l: stb_lexer    = zeroed();
     let mut string_store: [c_char; 1024] = zeroed(); // TODO: size of identifiers and string literals is limited because of stb_c_lexer.h
-    init(&mut l, input.items, input.items.add(input.count), string_store.as_mut_ptr(), string_store.len() as i32);
+    stb_c_lexer_init(&mut l, input.items, input.items.add(input.count), string_store.as_mut_ptr(), string_store.len() as i32);
 
     let mut output: String_Builder = zeroed();
     sb_appendf(&mut output, c"format ELF64\n".as_ptr());
@@ -186,7 +186,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
         vars.count = 0;
         vars_offset = 0;
 
-        get_token(&mut l);
+        stb_c_lexer_get_token(&mut l);
         if l.token == CLEX_eof { break 'def }
 
         if !expect_clex(&mut l, input_path, CLEX_id) { return 1; }
@@ -208,7 +208,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
             return 69;
         }
 
-        get_token(&mut l);
+        stb_c_lexer_get_token(&mut l);
         if l.token == '(' as c_long { // Function definition
             sb_appendf(&mut output, c"public %s\n".as_ptr(), symbol_name);
             sb_appendf(&mut output, c"%s:\n".as_ptr(), symbol_name);
@@ -221,7 +221,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
 
             'body: loop {
                 // Statement
-                get_token(&mut l);
+                stb_c_lexer_get_token(&mut l);
                 if l.token == '}' as c_long {
                     sb_appendf(&mut output, c"    add rsp, %zu\n".as_ptr(), vars_offset);
                     sb_appendf(&mut output, c"    pop rbp\n".as_ptr(), vars_offset);
@@ -276,7 +276,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                     let name = strdup(l.string);
                     let name_where = l.where_firstchar;
 
-                    get_token(&mut l);
+                    stb_c_lexer_get_token(&mut l);
                     if l.token == '=' as c_long {
                         let var_def = find_var(array_slice(vars), name);
                         if var_def.is_null() {
@@ -303,7 +303,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
                             return 69;
                         }
 
-                        get_token(&mut l);
+                        stb_c_lexer_get_token(&mut l);
                         if l.token != ')' as c_long  {
                             // TODO: function calls with multiple arguments
                             // NOTE: expecting only var read here for now
