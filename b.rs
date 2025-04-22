@@ -72,7 +72,8 @@ unsafe fn display_token_kind_temp(token: c_long) -> *const c_char {
         CLEX_shreq      => c">>=".as_ptr(),
         CLEX_eqarrow    => c"=>".as_ptr(),
         CLEX_dqstring   => c"string literal".as_ptr(),
-        CLEX_sqstring   => c"single quote literal".as_ptr(), // TODO: How are those different from CLEX_charlit?
+        // NOTE: single quote characters are opt-in in stb_c_lexer.h (see STB_C_LEX_C_SQ_STRINGS)
+        CLEX_sqstring   => c"single quote literal".as_ptr(),
         CLEX_charlit    => c"character literal".as_ptr(),
         CLEX_intlit     => c"integer literal".as_ptr(),
         CLEX_floatlit   => c"floating-point literal".as_ptr(),
