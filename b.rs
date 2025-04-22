@@ -1,6 +1,7 @@
 #![no_main]
 #![no_std]
 #![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
 extern crate core;
 
 #[panic_handler]
@@ -124,10 +125,6 @@ unsafe fn find_var(vars: *mut [Var], name: *const c_char) -> *mut Var {
     return ptr::null_mut();
 }
 
-unsafe fn usage(program_name: *const c_char) {
-    fprintf!(stderr, c"Usage: %s <input.b> <output.asm>\n", program_name);
-}
-
 const B_KEYWORDS: *const [*const c_char] = &[
     c"auto".as_ptr(),
     c"extrn".as_ptr(),
@@ -185,9 +182,26 @@ pub unsafe fn dump_ops(ops: *const [Op]) {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum Target {
+    Fasm_x86_64_Linux,
+    JavaScript,
+}
+
 unsafe fn generate_fasm_x86_64_linux_executable(output: *mut String_Builder) {
     sb_appendf(output, c"format ELF64\n".as_ptr());
     sb_appendf(output, c"section \".text\" executable\n".as_ptr());
+}
+
+unsafe fn generate_javascript_executable(output: *mut String_Builder) {
+    sb_appendf(output, c"\"use strict\"\n".as_ptr());
+}
+
+unsafe fn generate_executable(output: *mut String_Builder, target: Target) {
+    match target {
+        Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_executable(output),
+        Target::JavaScript => generate_javascript_executable(output),
+    }
 }
 
 unsafe fn generate_fasm_x86_64_linux_func_prolog(name: *const c_char, output: *mut String_Builder) {
@@ -197,11 +211,34 @@ unsafe fn generate_fasm_x86_64_linux_func_prolog(name: *const c_char, output: *m
     sb_appendf(output, c"    mov rbp, rsp\n".as_ptr());
 }
 
+unsafe fn generate_javascript_func_prolog(name: *const c_char, output: *mut String_Builder) {
+    sb_appendf(output, c"function %s() {\n".as_ptr(), name);
+    sb_appendf(output, c"    let vars = [];\n".as_ptr(), name);
+}
+
+unsafe fn generate_func_prolog(name: *const c_char, output: *mut String_Builder, target: Target) {
+    match target {
+        Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_prolog(name, output),
+        Target::JavaScript => generate_javascript_func_prolog(name, output),
+    }
+}
+
 unsafe fn generate_fasm_x86_64_linux_func_epilog(output: *mut String_Builder, vars_count: usize) {
     sb_appendf(output, c"    add rsp, %zu\n".as_ptr(), vars_count*8);
     sb_appendf(output, c"    pop rbp\n".as_ptr());
     sb_appendf(output, c"    mov rax, 0\n".as_ptr());
     sb_appendf(output, c"    ret\n".as_ptr());
+}
+
+unsafe fn generate_javascript_func_epilog(output: *mut String_Builder) {
+    sb_appendf(output, c"}\n".as_ptr());
+}
+
+unsafe fn generate_func_epilog(output: *mut String_Builder, vars_count: usize, target: Target) {
+    match target {
+        Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_epilog(output, vars_count),
+        Target::JavaScript => generate_javascript_func_epilog(output),
+    }
 }
 
 unsafe fn generate_fasm_x86_64_linux_func_body(body: *const [Op], output: *mut String_Builder) {
@@ -223,6 +260,36 @@ unsafe fn generate_fasm_x86_64_linux_func_body(body: *const [Op], output: *mut S
                 sb_appendf(output, c"    call %s\n".as_ptr(), name);
             },
         }
+    }
+}
+
+unsafe fn generate_javascript_func_body(body: *const [Op], output: *mut String_Builder) {
+    for i in 0..body.len() {
+        match (*body)[i] {
+            Op::AutoVar(count) => {
+                for _ in 0..count {
+                    sb_appendf(output, c"    vars.push(0);\n".as_ptr());
+                }
+            },
+            Op::ExtrnVar(_name) => {},
+            Op::AutoAssign(index, value) => {
+                sb_appendf(output, c"    vars[%zu] = %d;\n".as_ptr(), index - 1, value);
+            },
+            Op::Funcall{name, arg} => {
+                if let Some(index) = arg {
+                    sb_appendf(output, c"    %s(vars[%zu]);\n".as_ptr(), name, index - 1);
+                } else {
+                    sb_appendf(output, c"    %s();\n".as_ptr(), name);
+                }
+            },
+        }
+    }
+}
+
+unsafe fn generate_func_body(body: *const [Op], output: *mut String_Builder, target: Target) {
+    match target {
+        Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_body(body, output),
+        Target::JavaScript => generate_javascript_func_body(body, output),
     }
 }
 
@@ -342,21 +409,40 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
 
 #[no_mangle]
 unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
-    let program_name = shift!(_argv, _argc);
+    let _program_name = shift!(_argv, _argc);
 
-    if _argc <= 0 {
-        usage(program_name);
-        fprintf!(stderr, c"ERROR: no input is provided\n");
-        return 69;
-    }
-    let input_path = shift!(_argv, _argc);
+    let mut target = Target::Fasm_x86_64_Linux;
+    let mut input_path: *const c_char = ptr::null();
+    let mut output_path: *const c_char = ptr::null();
 
-    if _argc <= 0 {
-        usage(program_name);
-        fprintf!(stderr, c"ERROR: no output is provided\n");
-        return 69;
+    // TODO: introduce -help that prints usage and stuff
+    while _argc > 0 {
+        let flag = shift!(_argv, _argc);
+        if strcmp(flag, c"-target".as_ptr()) == 0 {
+            if _argc == 0 {
+                fprintf!(stderr, c"ERROR: no value is provied for flag `%s\n`", flag);
+                return 1;
+            }
+            let value = shift!(_argv, _argc);
+            if strcmp(value, c"fasm_x86_64_linux".as_ptr()) == 0 {
+                target = Target::Fasm_x86_64_Linux;
+            } else if strcmp(value, c"js".as_ptr()) == 0 {
+                target = Target::JavaScript;
+            } else {
+                // TODO: print available targets
+                fprintf!(stderr, c"ERROR: unknown target `%s\n`", value);
+                return 1;
+            }
+        } else if strcmp(flag, c"-o".as_ptr()) == 0 {
+            if _argc == 0 {
+                fprintf!(stderr, c"ERROR: no value is provied for flag `%s\n`", flag);
+                return 1;
+            }
+            output_path = shift!(_argv, _argc);
+        } else {
+            input_path = flag;
+        }
     }
-    let output_path = shift!(_argv, _argc);
 
     let mut vars: Array<Var> = zeroed();
     let mut func_body: Array<Op> = zeroed();
@@ -369,7 +455,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
     stb_c_lexer_init(&mut l, input.items, input.items.add(input.count), string_store.as_mut_ptr(), string_store.len() as i32);
 
     let mut output: String_Builder = zeroed();
-    generate_fasm_x86_64_linux_executable(&mut output);
+    generate_executable(&mut output, target);
 
     // TODO: are function also variables?
     //   Maybe some sort of global variables.
@@ -402,10 +488,10 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
             if !get_and_expect_clex(&mut l, input_path, ')' as c_long) { return 1; }
             if !get_and_expect_clex(&mut l, input_path, '{' as c_long) { return 1; }
 
-            generate_fasm_x86_64_linux_func_prolog(symbol_name, &mut output);
+            generate_func_prolog(symbol_name, &mut output, target);
             if !compile_func_body(&mut l, input_path, &mut vars, &mut func_body) { return 1; }
-            generate_fasm_x86_64_linux_func_body(array_slice(func_body), &mut output);
-            generate_fasm_x86_64_linux_func_epilog(&mut output, vars.count);
+            generate_func_body(array_slice(func_body), &mut output, target);
+            generate_func_epilog(&mut output, vars.count, target); // TODO: use the amount of auto vars instead of vars.count, becase vars.count includes external variables that we do not manage on the stack!!111
 
             func_body.count = 0;
         } else { // Variable definition

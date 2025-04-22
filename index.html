@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>B Program</title>
+  </head>
+  <body>
+    <h1>Output:</h1>
+    <pre id="log"></pre>
+    <script src="hello.js"></script>
+    <script>
+      const log = document.getElementById("log");
+      function putchar(code) {
+          log.innerText += String.fromCharCode(code);
+      }
+      main();
+    </script>
+  </body>
+</html>
