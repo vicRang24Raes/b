@@ -1,3 +1,6 @@
+.PHONY: examples
+examples: hello.js hello
+
 hello.js: hello.b b
 	./b hello.b -o hello.js -target js
 
