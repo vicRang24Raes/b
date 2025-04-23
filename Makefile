@@ -13,11 +13,8 @@ hello.o: hello.asm
 hello.asm: hello.b b
 	./b hello.b -o hello.asm
 
-b: b.o nob.o stb_c_lexer.o flag.o
-	clang -g -o b b.o nob.o stb_c_lexer.o flag.o
-
-b.o: b.rs libc.rs crust.rs nob.rs stb_c_lexer.rs
-	rustc --edition 2021 -g -C opt-level=z --emit=obj -C panic="abort" b.rs
+b: b.rs libc.rs crust.rs nob.rs stb_c_lexer.rs nob.o stb_c_lexer.o flag.o
+	rustc --edition 2021 -g -C opt-level=z -C link-args="-lc nob.o stb_c_lexer.o flag.o" -C panic="abort" b.rs
 
 nob.o: nob.h
 	clang -g -x c -DNOB_IMPLEMENTATION -c nob.h
