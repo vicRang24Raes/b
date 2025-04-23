@@ -444,15 +444,15 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
         return 0;
     }
 
-    if (*output_path).is_null() {
-        usage();
-        fprintf!(stderr, c"ERROR: no value for -%s is provided\n", flag_name(output_path));
-        return 1;
-    }
-
     if input_path.is_null() {
         usage();
         fprintf!(stderr, c"ERROR: no input is provided\n");
+        return 1;
+    }
+
+    if (*output_path).is_null() {
+        usage();
+        fprintf!(stderr, c"ERROR: no value for -%s is provided\n", flag_name(output_path));
         return 1;
     }
 
