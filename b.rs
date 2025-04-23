@@ -6,7 +6,9 @@ extern crate core;
 
 #[panic_handler]
 unsafe fn panic(_info: &PanicInfo) -> ! {
-    loop {}
+    // TODO: what's the best way to implement the panic handler within the Crust spirit
+    fprintf!(stderr, c"panicked\n");
+    abort()
 }
 
 #[macro_use]
