@@ -13,8 +13,8 @@ hello.o: hello.asm
 hello.asm: hello.b b
 	./b hello.b -o hello.asm
 
-b: b.o nob.o stb_c_lexer.o
-	clang -g -o b b.o nob.o stb_c_lexer.o
+b: b.o nob.o stb_c_lexer.o flag.o
+	clang -g -o b b.o nob.o stb_c_lexer.o flag.o
 
 b.o: b.rs libc.rs crust.rs nob.rs stb_c_lexer.rs
 	rustc --edition 2021 -g -C opt-level=z --emit=obj -C panic="abort" b.rs
@@ -24,5 +24,8 @@ nob.o: nob.h
 
 stb_c_lexer.o: stb_c_lexer.h
 	clang -g -x c -DSTB_C_LEXER_IMPLEMENTATION -c stb_c_lexer.h
+
+flag.o: flag.h
+	clang -g -x c -DFLAG_IMPLEMENTATION -c flag.h
 
 # TODO: use nob to build the project

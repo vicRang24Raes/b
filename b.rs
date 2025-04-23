@@ -16,6 +16,7 @@ pub mod crust;
 #[macro_use]
 pub mod nob;
 pub mod stb_c_lexer;
+pub mod flag;
 
 use core::panic::PanicInfo;
 use core::ffi::*;
@@ -25,6 +26,7 @@ use libc::*;
 use crust::*;
 use nob::*;
 use stb_c_lexer::*;
+use flag::*;
 
 macro_rules! diagf {
     ($l:expr, $path:expr, $where:expr, $fmt:literal $($args:tt)*) => {{
@@ -407,41 +409,62 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
     }
 }
 
+unsafe fn usage() {
+    fprintf!(stderr, c"Usage: %s <input.b> [OPTIONS]\n", flag_program_name());
+    flag_print_options(stderr);
+    // TODO: print available targets in the -help
+}
+
 #[no_mangle]
-unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
-    let _program_name = shift!(_argv, _argc);
+unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
+    let target_name = flag_str(c"target".as_ptr(), c"fasm_x86_64_linux".as_ptr(), c"Compilation target".as_ptr());
+    let output_path = flag_str(c"o".as_ptr(), ptr::null(), c"Output path".as_ptr());
+    let help        = flag_bool(c"help".as_ptr(), false, c"Print this help".as_ptr());
 
-    let mut target = Target::Fasm_x86_64_Linux;
     let mut input_path: *const c_char = ptr::null();
-    let mut output_path: *const c_char = ptr::null();
-
-    // TODO: introduce -help that prints usage and stuff
-    while _argc > 0 {
-        let flag = shift!(_argv, _argc);
-        if strcmp(flag, c"-target".as_ptr()) == 0 {
-            if _argc == 0 {
-                fprintf!(stderr, c"ERROR: no value is provied for flag `%s\n`", flag);
-                return 1;
-            }
-            let value = shift!(_argv, _argc);
-            if strcmp(value, c"fasm_x86_64_linux".as_ptr()) == 0 {
-                target = Target::Fasm_x86_64_Linux;
-            } else if strcmp(value, c"js".as_ptr()) == 0 {
-                target = Target::JavaScript;
-            } else {
-                // TODO: print available targets
-                fprintf!(stderr, c"ERROR: unknown target `%s\n`", value);
-                return 1;
-            }
-        } else if strcmp(flag, c"-o".as_ptr()) == 0 {
-            if _argc == 0 {
-                fprintf!(stderr, c"ERROR: no value is provied for flag `%s\n`", flag);
-                return 1;
-            }
-            output_path = shift!(_argv, _argc);
-        } else {
-            input_path = flag;
+    while argc > 0 {
+        if !flag_parse(argc, argv) {
+            usage();
+            return 1;
         }
+        argc = flag_rest_argc();
+        argv = flag_rest_argv();
+        if argc > 0 {
+            if !input_path.is_null() {
+                // TODO: support compiling several files?
+                fprintf!(stderr, c"ERROR: Serveral input files is not supported yet\n");
+                return 1;
+            }
+            input_path = shift!(argv, argc);
+        }
+    }
+
+    if *help {
+        usage();
+        return 0;
+    }
+
+    if (*output_path).is_null() {
+        usage();
+        fprintf!(stderr, c"ERROR: no value for -%s is provided\n", flag_name(output_path));
+        return 1;
+    }
+
+    if input_path.is_null() {
+        usage();
+        fprintf!(stderr, c"ERROR: no input is provided\n");
+        return 1;
+    }
+
+    let target;
+    if strcmp(*target_name, c"fasm_x86_64_linux".as_ptr()) == 0 {
+        target = Target::Fasm_x86_64_Linux;
+    } else if strcmp(*target_name, c"js".as_ptr()) == 0 {
+        target = Target::JavaScript;
+    } else {
+        // TODO: print available targets
+        fprintf!(stderr, c"ERROR: unknown target `%s\n`", target_name);
+        return 1;
     }
 
     let mut vars: Array<Var> = zeroed();
@@ -498,7 +521,7 @@ unsafe extern "C" fn main(mut _argc: i32, mut _argv: *mut *mut c_char) -> i32 {
             todof!(&l, input_path, l.where_firstchar, c"variable definitions\n");
         }
     }
-    if !write_entire_file(output_path, output.items as *const c_void, output.count) { return 69 }
+    if !write_entire_file(*output_path, output.items as *const c_void, output.count) { return 69 }
     0
 }
 
