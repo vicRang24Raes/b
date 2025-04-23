@@ -159,11 +159,14 @@ pub enum Arg {
 pub enum Op {
     AutoVar(usize),
     ExtrnVar(*const c_char),
-    AutoAssign(usize, i64),
+    AutoAssign {
+        index: usize,
+        arg: Arg,
+    },
     Funcall {
         name: *const c_char,
         arg: Option<Arg>,
-    }
+    },
 }
 
 pub unsafe fn dump_ops(ops: *const [Op]) {
@@ -171,13 +174,18 @@ pub unsafe fn dump_ops(ops: *const [Op]) {
         match (*ops)[i] {
             Op::AutoVar(index) => {
                 printf!(c"AutoVar(%zu)\n", index);
-            },
+            }
             Op::ExtrnVar(name) => {
                 printf!(c"ExtrnVar(\"%s\")\n", name);
-            },
-            Op::AutoAssign(index, value) => {
-                printf!(c"AutoAssign(%zu, %ld)\n", index, value);
-            },
+            }
+            Op::AutoAssign{index, arg} => match arg {
+                Arg::AutoVar(other_index) => {
+                    printf!(c"AutoAssign(%zu, AutoVar(%zu))\n", index, other_index);
+                }
+                Arg::Literal(literal) => {
+                    printf!(c"AutoAssign(%zu, Literal(%ld))\n", index, literal);
+                }
+            }
             Op::Funcall{name, arg} => {
                 match arg {
                     Some(arg) => {
@@ -187,7 +195,7 @@ pub unsafe fn dump_ops(ops: *const [Op]) {
                         printf!(c"Funcall(\"%s\")\n", name);
                     }
                 }
-            },
+            }
         }
     }
 }
@@ -291,8 +299,16 @@ unsafe fn generate_fasm_x86_64_linux_func_body(body: *const [Op], output: *mut S
             Op::ExtrnVar(name) => {
                 sb_appendf(output, c"    extrn %s\n".as_ptr(), name);
             },
-            Op::AutoAssign(index, value) => {
-                sb_appendf(output, c"    mov QWORD [rbp-%zu], %d\n".as_ptr(), index*8, value);
+            Op::AutoAssign{index, arg} => {
+                match arg {
+                    Arg::AutoVar(other_index) => {
+                        sb_appendf(output, c"    mov rax, [rbp-%zu]\n".as_ptr(), other_index*8);
+                        sb_appendf(output, c"    mov QWORD [rbp-%zu], rax\n".as_ptr(), index*8);
+                    }
+                    Arg::Literal(value) => {
+                        sb_appendf(output, c"    mov QWORD [rbp-%zu], %ld\n".as_ptr(), index*8, value);
+                    }
+                }
             },
             Op::Funcall{name, arg} => {
                 if let Some(arg) = arg {
@@ -316,8 +332,15 @@ unsafe fn generate_javascript_func_body(body: *const [Op], output: *mut String_B
                 }
             },
             Op::ExtrnVar(_name) => {},
-            Op::AutoAssign(index, value) => {
-                sb_appendf(output, c"    vars[%zu] = %d;\n".as_ptr(), index - 1, value);
+            Op::AutoAssign{index, arg} => {
+                match arg {
+                    Arg::AutoVar(other_index) => {
+                        sb_appendf(output, c"    vars[%zu] = vars[%zu];\n".as_ptr(), index - 1, other_index - 1);
+                    }
+                    Arg::Literal(value) => {
+                        sb_appendf(output, c"    vars[%zu] = %ld;\n".as_ptr(), index - 1, value);
+                    }
+                }
             },
             Op::Funcall{name, arg} => {
                 if let Some(arg) = arg {
@@ -402,11 +425,35 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                     return false;
                 }
 
-                // NOTE: expecting only int literal here for now
-                if !get_and_expect_clex(l, input_path, CLEX_intlit) { return false; }
                 match (*var_def).storage {
                     Storage::Auto => {
-                        array_push(func_body, Op::AutoAssign((*var_def).index, (*l).int_number));
+                        stb_c_lexer_get_token(l);
+                        match (*l).token {
+                            CLEX_intlit => array_push(func_body, Op::AutoAssign{
+                                index: (*var_def).index,
+                                arg: Arg::Literal((*l).int_number)
+                            }),
+                            CLEX_id => {
+                                let other_name = (*l).string;
+                                let other_var_def = find_var(array_slice(*vars), other_name);
+                                if other_var_def.is_null() {
+                                    diagf!(l, input_path, name_where, c"ERROR: could not find variable `%s`\n", other_name);
+                                    return false;
+                                }
+                                match (*other_var_def).storage {
+                                    Storage::Auto => array_push(func_body, Op::AutoAssign{
+                                        index: (*var_def).index,
+                                        arg: Arg::AutoVar((*other_var_def).index)
+                                    }),
+                                    Storage::External => {
+                                        todof!(l, input_path, name_where, c"assignment from external variables\n");
+                                    }
+                                }
+                            }
+                            _ => {
+                                todof!(l, input_path, (*l).where_firstchar, c"Unexpected token %s, we only support assining variables and int literals for now\n", display_token_kind_temp((*l).token));
+                            }
+                        }
                     }
                     Storage::External => {
                         todof!(l, input_path, name_where, c"assignment to external variables\n");
