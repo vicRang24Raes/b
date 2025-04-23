@@ -264,8 +264,8 @@ unsafe fn generate_func_prolog(name: *const c_char, output: *mut String_Builder,
     }
 }
 
-unsafe fn generate_fasm_x86_64_linux_func_epilog(output: *mut String_Builder, vars_count: usize) {
-    sb_appendf(output, c"    add rsp, %zu\n".as_ptr(), vars_count*8);
+unsafe fn generate_fasm_x86_64_linux_func_epilog(output: *mut String_Builder) {
+    sb_appendf(output, c"    mov rsp, rbp\n".as_ptr());
     sb_appendf(output, c"    pop rbp\n".as_ptr());
     sb_appendf(output, c"    mov rax, 0\n".as_ptr());
     sb_appendf(output, c"    ret\n".as_ptr());
@@ -275,9 +275,9 @@ unsafe fn generate_javascript_func_epilog(output: *mut String_Builder) {
     sb_appendf(output, c"}\n".as_ptr());
 }
 
-unsafe fn generate_func_epilog(output: *mut String_Builder, vars_count: usize, target: Target) {
+unsafe fn generate_func_epilog(output: *mut String_Builder, target: Target) {
     match target {
-        Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_epilog(output, vars_count),
+        Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_epilog(output),
         Target::JavaScript => generate_javascript_func_epilog(output),
     }
 }
@@ -572,7 +572,7 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
             generate_func_prolog(symbol_name, &mut output, target);
             if !compile_func_body(&mut l, input_path, &mut vars, &mut func_body) { return 1; }
             generate_func_body(array_slice(func_body), &mut output, target);
-            generate_func_epilog(&mut output, vars.count, target); // TODO: use the amount of auto vars instead of vars.count, becase vars.count includes external variables that we do not manage on the stack!!111
+            generate_func_epilog(&mut output, target); // TODO: use the amount of auto vars instead of vars.count, becase vars.count includes external variables that we do not manage on the stack!!111
 
             func_body.count = 0;
         } else { // Variable definition
