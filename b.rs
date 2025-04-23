@@ -184,10 +184,41 @@ pub unsafe fn dump_ops(ops: *const [Op]) {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Fasm_x86_64_Linux,
     JavaScript,
+}
+
+#[derive(Clone, Copy)]
+struct Target_Name {
+    name: *const c_char,
+    target: Target,
+}
+
+// TODO: How do we make this place fail compiling when you add a new target above?
+//   Maybe we can introduce some sort of macro that generates all of this from a single list of targets
+const TARGET_NAMES: *const [Target_Name] = &[
+    Target_Name { name: c"fasm_x86_64_linux".as_ptr(), target: Target::Fasm_x86_64_Linux },
+    Target_Name { name: c"js".as_ptr(),                target: Target::JavaScript        },
+];
+
+unsafe fn name_of_target(target: Target) -> Option<*const c_char> {
+    for i in 0..(*TARGET_NAMES).len() {
+        if target == (*TARGET_NAMES)[i].target {
+            return Some((*TARGET_NAMES)[i].name);
+        }
+    }
+    None
+}
+
+unsafe fn target_by_name(name: *const c_char) -> Option<Target> {
+    for i in 0..(*TARGET_NAMES).len() {
+        if strcmp(name, (*TARGET_NAMES)[i].name) == 0 {
+            return Some((*TARGET_NAMES)[i].target);
+        }
+    }
+    None
 }
 
 unsafe fn generate_fasm_x86_64_linux_executable(output: *mut String_Builder) {
@@ -409,22 +440,31 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
     }
 }
 
-unsafe fn usage() {
-    fprintf!(stderr, c"Usage: %s <input.b> [OPTIONS]\n", flag_program_name());
+unsafe fn usage(target_name_flag: *mut*mut c_char) {
+    fprintf!(stderr, c"Usage: %s [OPTIONS] <input.b>\n", flag_program_name());
+    fprintf!(stderr, c"OPTIONS:\n");
     flag_print_options(stderr);
-    // TODO: print available targets in the -help
+    fprintf!(stderr, c"Compilation targets:\n");
+    for i in 0..TARGET_NAMES.len() {
+        fprintf!(stderr, c"    -%s %s\n", flag_name(target_name_flag), (*TARGET_NAMES)[i].name);
+    }
 }
 
 #[no_mangle]
 unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
-    let target_name = flag_str(c"target".as_ptr(), c"fasm_x86_64_linux".as_ptr(), c"Compilation target".as_ptr());
+    let Some(default_target_name) = name_of_target(Target::Fasm_x86_64_Linux) else {
+        fprintf!(stderr, c"ASSERT: default target name not found");
+        abort();
+    };
+
+    let target_name = flag_str(c"target".as_ptr(), default_target_name, c"Compilation target".as_ptr());
     let output_path = flag_str(c"o".as_ptr(), ptr::null(), c"Output path (MANDATORY)".as_ptr());
     let help        = flag_bool(c"help".as_ptr(), false, c"Print this help message".as_ptr());
 
     let mut input_path: *const c_char = ptr::null();
     while argc > 0 {
         if !flag_parse(argc, argv) {
-            usage();
+            usage(target_name);
             return 1;
         }
         argc = flag_rest_argc();
@@ -440,32 +480,27 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
     }
 
     if *help {
-        usage();
+        usage(target_name);
         return 0;
     }
 
     if input_path.is_null() {
-        usage();
+        usage(target_name);
         fprintf!(stderr, c"ERROR: no input is provided\n");
         return 1;
     }
 
     if (*output_path).is_null() {
-        usage();
-        fprintf!(stderr, c"ERROR: no value for -%s is provided\n", flag_name(output_path));
+        usage(target_name);
+        fprintf!(stderr, c"ERROR: no output path is provided with -%s\n", flag_name(output_path));
         return 1;
     }
 
-    let target;
-    if strcmp(*target_name, c"fasm_x86_64_linux".as_ptr()) == 0 {
-        target = Target::Fasm_x86_64_Linux;
-    } else if strcmp(*target_name, c"js".as_ptr()) == 0 {
-        target = Target::JavaScript;
-    } else {
-        // TODO: print available targets
-        fprintf!(stderr, c"ERROR: unknown target `%s\n`", target_name);
+    let Some(target) = target_by_name(*target_name) else {
+        usage(target_name);
+        fprintf!(stderr, c"ERROR: unknown target `%s`\n", *target_name);
         return 1;
-    }
+    };
 
     let mut vars: Array<Var> = zeroed();
     let mut func_body: Array<Op> = zeroed();
