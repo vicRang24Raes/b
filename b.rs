@@ -418,8 +418,8 @@ unsafe fn usage() {
 #[no_mangle]
 unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
     let target_name = flag_str(c"target".as_ptr(), c"fasm_x86_64_linux".as_ptr(), c"Compilation target".as_ptr());
-    let output_path = flag_str(c"o".as_ptr(), ptr::null(), c"Output path".as_ptr());
-    let help        = flag_bool(c"help".as_ptr(), false, c"Print this help".as_ptr());
+    let output_path = flag_str(c"o".as_ptr(), ptr::null(), c"Output path (MANDATORY)".as_ptr());
+    let help        = flag_bool(c"help".as_ptr(), false, c"Print this help message".as_ptr());
 
     let mut input_path: *const c_char = ptr::null();
     while argc > 0 {
