@@ -538,6 +538,7 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
     let mut output: String_Builder = zeroed();
     generate_executable(&mut output, target);
 
+    // TODO: calling user defined functions does not work anymore
     // TODO: are function also variables?
     //   Maybe some sort of global variables.
     'def: loop {
