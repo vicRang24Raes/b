@@ -150,13 +150,19 @@ unsafe fn is_keyword(name: *const c_char) -> bool {
 }
 
 #[derive(Clone, Copy)]
+pub enum Arg {
+    AutoVar(usize),
+    Literal(i64),
+}
+
+#[derive(Clone, Copy)]
 pub enum Op {
     AutoVar(usize),
     ExtrnVar(*const c_char),
     AutoAssign(usize, i64),
     Funcall {
         name: *const c_char,
-        arg: Option<usize>,
+        arg: Option<Arg>,
     }
 }
 
@@ -289,8 +295,11 @@ unsafe fn generate_fasm_x86_64_linux_func_body(body: *const [Op], output: *mut S
                 sb_appendf(output, c"    mov QWORD [rbp-%zu], %d\n".as_ptr(), index*8, value);
             },
             Op::Funcall{name, arg} => {
-                if let Some(index) = arg {
-                    sb_appendf(output, c"    mov rdi, [rbp-%zu]\n".as_ptr(), index*8);
+                if let Some(arg) = arg {
+                    match arg {
+                        Arg::AutoVar(index) => sb_appendf(output, c"    mov rdi, [rbp-%zu]\n".as_ptr(), index*8),
+                        Arg::Literal(value) => sb_appendf(output, c"    mov rdi, %ld\n".as_ptr(), value),
+                    };
                 }
                 sb_appendf(output, c"    call %s\n".as_ptr(), name);
             },
@@ -311,8 +320,11 @@ unsafe fn generate_javascript_func_body(body: *const [Op], output: *mut String_B
                 sb_appendf(output, c"    vars[%zu] = %d;\n".as_ptr(), index - 1, value);
             },
             Op::Funcall{name, arg} => {
-                if let Some(index) = arg {
-                    sb_appendf(output, c"    %s(vars[%zu]);\n".as_ptr(), name, index - 1);
+                if let Some(arg) = arg {
+                    match arg {
+                        Arg::AutoVar(index) => sb_appendf(output, c"    %s(vars[%zu]);\n".as_ptr(), name, index - 1),
+                        Arg::Literal(value) => sb_appendf(output, c"    %s(%ld);\n".as_ptr(), name, value),
+                    };
                 } else {
                     sb_appendf(output, c"    %s();\n".as_ptr(), name);
                 }
@@ -413,14 +425,23 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                 let mut arg = None;
                 if (*l).token != ')' as c_long  {
                     // TODO: function calls with multiple arguments
-                    // NOTE: expecting only var read here for now
-                    if !expect_clex(l, input_path, CLEX_id) { return false; }
-                    let var_def = find_var(array_slice(*vars), (*l).string);
-                    if var_def.is_null() {
-                        diagf!(l, input_path, (*l).where_firstchar, c"ERROR: could not find variable `%s`\n", (*l).string);
-                        return false;
+                    match (*l).token {
+                        CLEX_id => {
+                            let var_def = find_var(array_slice(*vars), (*l).string);
+                            if var_def.is_null() {
+                                diagf!(l, input_path, (*l).where_firstchar, c"ERROR: could not find variable `%s`\n", (*l).string);
+                                return false;
+                            }
+                            arg = Some(Arg::AutoVar((*var_def).index));
+                        }
+                        CLEX_intlit => {
+                            arg = Some(Arg::Literal((*l).int_number));
+                        }
+                        _ => {
+                            todof!(l, input_path, (*l).where_firstchar, c"Unexpected token %s, we only support passing variables and int literals for now\n", display_token_kind_temp((*l).token));
+                        }
                     }
-                    arg = Some((*var_def).index);
+
                     if !get_and_expect_clex(l, input_path, ')' as c_long) { return false; }
                 }
 

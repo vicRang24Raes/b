@@ -1,13 +1,13 @@
 main() {
     extrn putchar;
+    putchar(72);
+    putchar(69);
     auto a;
-    a = 72; putchar(a);
-    a = 69; putchar(a);
     a = 76; putchar(a); putchar(a);
-    a = 79; putchar(a);
-    a = 79; putchar(a);
-    a = 79; putchar(a);
-    a = 79; putchar(a);
-    a = 79; putchar(a);
-    a = 10; putchar(a);
+    putchar(79);
+    putchar(79);
+    putchar(79);
+    putchar(79);
+    putchar(79);
+    putchar(10);
 }
