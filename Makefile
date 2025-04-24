@@ -1,28 +1,36 @@
+BUILD=build
+THIRDPARTY=thirdparty
+SRC=src
+EXAMPLES=examples
+
 .PHONY: examples
-examples: hello.js hello
+examples: $(BUILD)/hello.js $(BUILD)/hello
 
-hello.js: hello.b b
-	./b hello.b -o hello.js -target js
+$(BUILD)/hello.js: $(EXAMPLES)/hello.b $(BUILD)/b
+	$(BUILD)/b $(EXAMPLES)/hello.b -o $(BUILD)/hello.js -target js
 
-hello: hello.o
-	clang -no-pie -o hello hello.o
+$(BUILD)/hello: $(BUILD)/hello.o
+	clang -no-pie -o $(BUILD)/hello $(BUILD)/hello.o
 
-hello.o: hello.asm
-	fasm hello.asm hello.o
+$(BUILD)/hello.o: $(BUILD)/hello.asm
+	fasm $(BUILD)/hello.asm $(BUILD)/hello.o
 
-hello.asm: hello.b b
-	./b hello.b -o hello.asm
+$(BUILD)/hello.asm: $(EXAMPLES)/hello.b $(BUILD)/b
+	$(BUILD)/b $(EXAMPLES)/hello.b -o $(BUILD)/hello.asm
 
-b: b.rs libc.rs crust.rs nob.rs stb_c_lexer.rs nob.o stb_c_lexer.o flag.o
-	rustc --edition 2021 -g -C opt-level=z -C link-args="-lc nob.o stb_c_lexer.o flag.o" -C panic="abort" b.rs
+$(BUILD)/b: $(SRC)/b.rs $(SRC)/libc.rs $(SRC)/crust.rs $(SRC)/nob.rs $(SRC)/stb_c_lexer.rs $(BUILD)/nob.o $(BUILD)/stb_c_lexer.o $(BUILD)/flag.o
+	rustc --edition 2021 -g -C opt-level=z -C link-args="-lc $(BUILD)/nob.o $(BUILD)/stb_c_lexer.o $(BUILD)/flag.o" -C panic="abort" $(SRC)/b.rs -o $(BUILD)/b
 
-nob.o: nob.h
-	clang -g -x c -DNOB_IMPLEMENTATION -c nob.h
+$(BUILD)/nob.o: $(THIRDPARTY)/nob.h $(BUILD)
+	clang -g -x c -DNOB_IMPLEMENTATION -c $(THIRDPARTY)/nob.h -o $(BUILD)/nob.o
 
-stb_c_lexer.o: stb_c_lexer.h
-	clang -g -x c -DSTB_C_LEXER_IMPLEMENTATION -c stb_c_lexer.h
+$(BUILD)/stb_c_lexer.o: $(THIRDPARTY)/stb_c_lexer.h $(BUILD)
+	clang -g -x c -DSTB_C_LEXER_IMPLEMENTATION -c $(THIRDPARTY)/stb_c_lexer.h -o $(BUILD)/stb_c_lexer.o
 
-flag.o: flag.h
-	clang -g -x c -DFLAG_IMPLEMENTATION -c flag.h
+$(BUILD)/flag.o: $(THIRDPARTY)/flag.h $(BUILD)
+	clang -g -x c -DFLAG_IMPLEMENTATION -c $(THIRDPARTY)/flag.h -o $(BUILD)/flag.o
+
+$(BUILD):
+	mkdir -pv $(BUILD)
 
 # TODO: use nob to build the project
