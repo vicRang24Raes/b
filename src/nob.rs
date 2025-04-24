@@ -37,6 +37,22 @@ macro_rules! shift {
     }};
 }
 
+pub type Cmd = Array<*const c_char>;
+
+#[macro_export]
+macro_rules! cmd_append {
+    ($cmd:expr,) => {};
+    ($cmd:expr, $arg:expr, $($tail:tt)*) => {
+        da_append($cmd, $arg);
+        cmd_append!($cmd, $($tail)*);
+    }
+}
+
+extern "C" {
+    #[link_name = "nob_cmd_run_sync_and_reset"]
+    pub fn cmd_run_sync_and_reset(cmd: *mut Cmd) -> bool;
+}
+
 pub type String_Builder = Array<c_char>;
 
 extern "C" {
