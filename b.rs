@@ -620,7 +620,7 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
             generate_func_prolog(symbol_name, &mut output, target);
             if !compile_func_body(&mut l, input_path, &mut vars, &mut func_body) { return 1; }
             generate_func_body(array_slice(func_body), &mut output, target);
-            generate_func_epilog(&mut output, target); // TODO: use the amount of auto vars instead of vars.count, becase vars.count includes external variables that we do not manage on the stack!!111
+            generate_func_epilog(&mut output, target);
 
             func_body.count = 0;
         } else { // Variable definition
