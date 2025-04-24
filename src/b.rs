@@ -429,9 +429,14 @@ pub unsafe fn generate_func_body(body: *const [Op], output: *mut String_Builder,
     }
 }
 
-pub unsafe fn compile_primary_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var]) -> Option<Arg> {
+pub unsafe fn compile_primary_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var], auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> Option<Arg> {
     stb_c_lexer_get_token(l);
     match (*l).token {
+        token if token == '(' as i64 => {
+            let expr = compile_expression(l, input_path, vars, auto_vars_count, func_body)?;
+            if !get_and_expect_clex(l, input_path, ')' as i64) { return None }
+            Some(expr)
+        }
         CLEX_intlit => return Some(Arg::Literal((*l).int_number)),
         CLEX_id => {
             let name = (*l).string;
@@ -454,8 +459,9 @@ pub unsafe fn compile_primary_expression(l: *mut stb_lexer, input_path: *const c
     }
 }
 
+// TODO: the expression compilation leaks a lot of temporary variables
 pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var], auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> Option<Arg> {
-    let mut lhs = compile_primary_expression(l, input_path, vars)?;
+    let mut lhs = compile_primary_expression(l, input_path, vars, auto_vars_count, func_body)?;
 
     // (primary) + (primary) + (primary) + (primary) + ..
 
@@ -466,7 +472,7 @@ pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, v
         let index = *auto_vars_count;
         da_append(func_body, Op::AutoVar(1));
         while (*l).token == '+' as i64 {
-            let rhs = compile_primary_expression(l, input_path, vars)?;
+            let rhs = compile_primary_expression(l, input_path, vars, auto_vars_count, func_body)?;
             da_append(func_body, Op::AutoPlus {index, lhs, rhs});
             lhs = Arg::AutoVar(index);
 
@@ -535,6 +541,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
             let name_where = (*l).where_firstchar;
 
             stb_c_lexer_get_token(l);
+            // TODO: assignment and function call must be expressions
             if (*l).token == '=' as c_long {
                 let var_def = find_var(da_slice(*vars), name);
                 if var_def.is_null() {
