@@ -18,7 +18,7 @@ $(BUILD)/hello.o: $(BUILD)/hello.asm
 $(BUILD)/hello.asm: $(EXAMPLES)/hello.b $(BUILD)/b
 	$(BUILD)/b $(EXAMPLES)/hello.b -o $(BUILD)/hello.asm
 
-$(BUILD)/b: $(SRC)/b.rs $(SRC)/libc.rs $(SRC)/crust.rs $(SRC)/nob.rs $(SRC)/stb_c_lexer.rs $(BUILD)/nob.o $(BUILD)/stb_c_lexer.o $(BUILD)/flag.o
+$(BUILD)/b: $(SRC)/b.rs $(SRC)/libc.rs $(SRC)/nob.rs $(SRC)/stb_c_lexer.rs $(BUILD)/nob.o $(BUILD)/stb_c_lexer.o $(BUILD)/flag.o
 	rustc --edition 2021 -g -C opt-level=z -C link-args="-lc $(BUILD)/nob.o $(BUILD)/stb_c_lexer.o $(BUILD)/flag.o" -C panic="abort" $(SRC)/b.rs -o $(BUILD)/b
 
 $(BUILD)/nob.o: $(THIRDPARTY)/nob.h $(BUILD)

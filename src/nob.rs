@@ -1,4 +1,31 @@
 use core::ffi::*;
+use core::slice;
+use crate::libc;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Array<T> {
+    pub items: *mut T,
+    pub count: usize,
+    pub capacity: usize,
+}
+
+pub unsafe fn da_slice<T>(xs: Array<T>) -> *mut [T] {
+    slice::from_raw_parts_mut(xs.items, xs.count)
+}
+
+pub unsafe fn da_append<T>(xs: *mut Array<T>, item: T) {
+    if (*xs).count >= (*xs).capacity {
+        if (*xs).capacity == 0 {
+            (*xs).capacity = 256;
+        } else {
+            (*xs).capacity *= 2;
+        }
+        (*xs).items = libc::realloc_items((*xs).items, (*xs).capacity);
+    }
+    *((*xs).items.add((*xs).count)) = item;
+    (*xs).count += 1;
+}
 
 #[macro_export]
 macro_rules! shift {
@@ -10,12 +37,7 @@ macro_rules! shift {
     }};
 }
 
-#[repr(C)]
-pub struct String_Builder {
-    pub items: *mut c_char,
-    pub count: usize,
-    pub capacity: usize,
-}
+pub type String_Builder = Array<c_char>;
 
 extern "C" {
     #[link_name = "nob_read_entire_file"]

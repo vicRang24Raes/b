@@ -14,8 +14,6 @@ unsafe fn panic(_info: &PanicInfo) -> ! {
 #[macro_use]
 pub mod libc;
 #[macro_use]
-pub mod crust;
-#[macro_use]
 pub mod nob;
 pub mod stb_c_lexer;
 pub mod flag;
@@ -25,7 +23,6 @@ use core::ffi::*;
 use core::mem::zeroed;
 use core::ptr;
 use libc::*;
-use crust::*;
 use nob::*;
 use stb_c_lexer::*;
 use flag::*;
@@ -378,40 +375,40 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
 
             let name = strdup((*l).string);
             let name_where = (*l).where_firstchar;
-            let existing_var = find_var(array_slice(*vars), name);
+            let existing_var = find_var(da_slice(*vars), name);
             if !existing_var.is_null() {
                 diagf!(l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
                 diagf!(l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                 return false;
             }
 
-            array_push(vars, Var {
+            da_append(vars, Var {
                 name,
                 storage: Storage::External,
                 index: 0,  // Irrelevant for external variables
                 hwere: (*l).where_firstchar,
             });
 
-            array_push(func_body, Op::ExtrnVar(strdup((*l).string)));
+            da_append(func_body, Op::ExtrnVar(strdup((*l).string)));
             if !get_and_expect_clex(l, input_path, ';' as c_long) { return false; }
         } else if strcmp((*l).string, c"auto".as_ptr()) == 0 {
             if !get_and_expect_clex(l, input_path, CLEX_id) { return false; }
             let name = strdup((*l).string);
             let name_where = (*l).where_firstchar;
-            let existing_var = find_var(array_slice(*vars), name);
+            let existing_var = find_var(da_slice(*vars), name);
             if !existing_var.is_null() {
                 diagf!(l, input_path, name_where, c"ERROR: redefinition of variable `%s`\n", name);
                 diagf!(l, input_path, (*existing_var).hwere, c"NOTE: the first declaration is located here\n");
                 return false;
             }
-            array_push(vars, Var {
+            da_append(vars, Var {
                 name,
                 storage: Storage::Auto,
                 index: (*vars).count,
                 hwere: (*l).where_firstchar,
             });
             // TODO: support multiple auto declarations
-            array_push(func_body, Op::AutoVar(1));
+            da_append(func_body, Op::AutoVar(1));
             if !get_and_expect_clex(l, input_path, ';' as c_long) { return false; }
         } else {
             let name = strdup((*l).string);
@@ -419,7 +416,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
 
             stb_c_lexer_get_token(l);
             if (*l).token == '=' as c_long {
-                let var_def = find_var(array_slice(*vars), name);
+                let var_def = find_var(da_slice(*vars), name);
                 if var_def.is_null() {
                     diagf!(l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
                     return false;
@@ -429,19 +426,19 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                     Storage::Auto => {
                         stb_c_lexer_get_token(l);
                         match (*l).token {
-                            CLEX_intlit => array_push(func_body, Op::AutoAssign{
+                            CLEX_intlit => da_append(func_body, Op::AutoAssign{
                                 index: (*var_def).index,
                                 arg: Arg::Literal((*l).int_number)
                             }),
                             CLEX_id => {
                                 let other_name = (*l).string;
-                                let other_var_def = find_var(array_slice(*vars), other_name);
+                                let other_var_def = find_var(da_slice(*vars), other_name);
                                 if other_var_def.is_null() {
                                     diagf!(l, input_path, name_where, c"ERROR: could not find variable `%s`\n", other_name);
                                     return false;
                                 }
                                 match (*other_var_def).storage {
-                                    Storage::Auto => array_push(func_body, Op::AutoAssign{
+                                    Storage::Auto => da_append(func_body, Op::AutoAssign{
                                         index: (*var_def).index,
                                         arg: Arg::AutoVar((*other_var_def).index)
                                     }),
@@ -462,7 +459,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
 
                 if !get_and_expect_clex(l, input_path, ';' as c_long) { return false; }
             } else if (*l).token == '(' as c_long {
-                let var_def = find_var(array_slice(*vars), name);
+                let var_def = find_var(da_slice(*vars), name);
                 if var_def.is_null() {
                     diagf!(l, input_path, name_where, c"ERROR: could not find function `%s`\n", name);
                     return false;
@@ -474,7 +471,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                     // TODO: function calls with multiple arguments
                     match (*l).token {
                         CLEX_id => {
-                            let var_def = find_var(array_slice(*vars), (*l).string);
+                            let var_def = find_var(da_slice(*vars), (*l).string);
                             if var_def.is_null() {
                                 diagf!(l, input_path, (*l).where_firstchar, c"ERROR: could not find variable `%s`\n", (*l).string);
                                 return false;
@@ -494,7 +491,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
 
                 match (*var_def).storage {
                     Storage::External => {
-                        array_push(func_body, Op::Funcall {name, arg});
+                        da_append(func_body, Op::Funcall {name, arg});
                     }
                     Storage::Auto => {
                         todof!(l, input_path, name_where, c"calling functions from auto variables\n");
@@ -619,7 +616,7 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
 
             generate_func_prolog(symbol_name, &mut output, target);
             if !compile_func_body(&mut l, input_path, &mut vars, &mut func_body) { return 1; }
-            generate_func_body(array_slice(func_body), &mut output, target);
+            generate_func_body(da_slice(func_body), &mut output, target);
             generate_func_epilog(&mut output, target);
 
             func_body.count = 0;

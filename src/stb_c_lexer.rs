@@ -1,6 +1,15 @@
 #![allow(non_upper_case_globals)]
 use core::ffi::{c_char, c_long, c_double, c_int};
 
+#[macro_export]
+macro_rules! non_soy_enum {
+    (iota = $value:expr,) => {};
+    (iota = $value:expr, $name:ident, $($tail:tt)*) => {
+        pub const $name: c_long = $value;
+        non_soy_enum!(iota = $value + 1, $($tail)*);
+    };
+}
+
 non_soy_enum! {
     iota = 256              ,
     CLEX_eof                ,
