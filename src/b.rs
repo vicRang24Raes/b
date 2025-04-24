@@ -2,6 +2,7 @@
 #![no_std]
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
+#![allow(unused_macros)]
 extern crate core;
 
 #[panic_handler]
@@ -37,6 +38,15 @@ macro_rules! diagf {
 }
 
 macro_rules! todof {
+    ($fmt:literal $($args:tt)*) => {{
+        let file = file!();
+        fprintf!(stderr, c"%.*s:%d: TODO: ", file.len(), file.as_ptr(), line!());
+        fprintf!(stderr, $fmt $($args)*);
+        abort();
+    }}
+}
+
+macro_rules! missingf {
     ($l:expr, $path:expr, $where:expr, $fmt:literal $($args:tt)*) => {{
         let file = file!();
         let mut loc: stb_lex_location = zeroed();
@@ -162,10 +172,16 @@ pub enum Arg {
     Literal(i64),
 }
 
+// TODO: associate location within the source code with each op
 #[derive(Clone, Copy)]
 pub enum Op {
     AutoVar(usize),
     ExtrnVar(*const c_char),
+    AutoPlus {
+        index: usize,
+        lhs: Arg,
+        rhs: Arg,
+    },
     AutoAssign {
         index: usize,
         arg: Arg,
@@ -176,41 +192,18 @@ pub enum Op {
     },
 }
 
-pub unsafe fn dump_ops(ops: *const [Op]) {
-    for i in 0..ops.len() {
-        match (*ops)[i] {
-            Op::AutoVar(index) => {
-                printf!(c"AutoVar(%zu)\n", index);
-            }
-            Op::ExtrnVar(name) => {
-                printf!(c"ExtrnVar(\"%s\")\n", name);
-            }
-            Op::AutoAssign{index, arg} => match arg {
-                Arg::AutoVar(other_index) => {
-                    printf!(c"AutoAssign(%zu, AutoVar(%zu))\n", index, other_index);
-                }
-                Arg::Literal(literal) => {
-                    printf!(c"AutoAssign(%zu, Literal(%ld))\n", index, literal);
-                }
-            }
-            Op::Funcall{name, arg} => {
-                match arg {
-                    Some(arg) => {
-                        printf!(c"Funcall(\"%s\", %ld)\n", name, arg);
-                    }
-                    None => {
-                        printf!(c"Funcall(\"%s\")\n", name);
-                    }
-                }
-            }
-        }
-    }
+pub unsafe fn dump_arg(output: *mut String_Builder, arg: Arg) {
+    match arg {
+        Arg::Literal(value) => sb_appendf(output, c"Literal(%ld)".as_ptr(), value),
+        Arg::AutoVar(index) => sb_appendf(output, c"AutoVar(%zu)".as_ptr(), index),
+    };
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Target {
     Fasm_x86_64_Linux,
     JavaScript,
+    IR,
 }
 
 #[derive(Clone, Copy)]
@@ -224,6 +217,7 @@ struct Target_Name {
 const TARGET_NAMES: *const [Target_Name] = &[
     Target_Name { name: c"fasm_x86_64_linux".as_ptr(), target: Target::Fasm_x86_64_Linux },
     Target_Name { name: c"js".as_ptr(),                target: Target::JavaScript        },
+    Target_Name { name: c"ir".as_ptr(),                target: Target::IR                },
 ];
 
 unsafe fn name_of_target(target: Target) -> Option<*const c_char> {
@@ -256,7 +250,8 @@ unsafe fn generate_javascript_executable(output: *mut String_Builder) {
 unsafe fn generate_executable(output: *mut String_Builder, target: Target) {
     match target {
         Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_executable(output),
-        Target::JavaScript => generate_javascript_executable(output),
+        Target::JavaScript        => generate_javascript_executable(output),
+        Target::IR                => {}
     }
 }
 
@@ -276,6 +271,9 @@ unsafe fn generate_func_prolog(name: *const c_char, output: *mut String_Builder,
     match target {
         Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_prolog(name, output),
         Target::JavaScript => generate_javascript_func_prolog(name, output),
+        Target::IR => {
+            sb_appendf(output, c"%s:\n".as_ptr(), name);
+        }
     }
 }
 
@@ -294,6 +292,7 @@ unsafe fn generate_func_epilog(output: *mut String_Builder, target: Target) {
     match target {
         Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_epilog(output),
         Target::JavaScript => generate_javascript_func_epilog(output),
+        Target::IR => {}
     }
 }
 
@@ -317,6 +316,17 @@ unsafe fn generate_fasm_x86_64_linux_func_body(body: *const [Op], output: *mut S
                     }
                 }
             },
+            Op::AutoPlus{index, lhs, rhs} => {
+                match lhs {
+                    Arg::AutoVar(index) => sb_appendf(output, c"    mov rax, [rbp-%zu]\n".as_ptr(), index*8),
+                    Arg::Literal(value) => sb_appendf(output, c"    mov rax, %ld\n".as_ptr(), value),
+                };
+                match rhs {
+                    Arg::AutoVar(index) => sb_appendf(output, c"    add rax, [rbp-%zu]\n".as_ptr(), index*8),
+                    Arg::Literal(value) => sb_appendf(output, c"    add rax, %ld\n".as_ptr(), value),
+                };
+                sb_appendf(output, c"    mov [rbp-%zu], rax\n".as_ptr(), index*8);
+            }
             Op::Funcall{name, arg} => {
                 if let Some(arg) = arg {
                     match arg {
@@ -349,6 +359,19 @@ unsafe fn generate_javascript_func_body(body: *const [Op], output: *mut String_B
                     }
                 }
             },
+            Op::AutoPlus{index, lhs, rhs} => {
+                sb_appendf(output, c"    vars[%zu] = ".as_ptr(), index - 1);
+                match lhs {
+                    Arg::AutoVar(index) => sb_appendf(output, c"vars[%zu]".as_ptr(), index - 1),
+                    Arg::Literal(value) => sb_appendf(output, c"%ld".as_ptr(), value),
+                };
+                sb_appendf(output, c" + ".as_ptr());
+                match rhs {
+                    Arg::AutoVar(index) => sb_appendf(output, c"vars[%zu]".as_ptr(), index - 1),
+                    Arg::Literal(value) => sb_appendf(output, c"%ld".as_ptr(), value),
+                };
+                sb_appendf(output, c";\n".as_ptr());
+            }
             Op::Funcall{name, arg} => {
                 if let Some(arg) = arg {
                     match arg {
@@ -367,12 +390,47 @@ pub unsafe fn generate_func_body(body: *const [Op], output: *mut String_Builder,
     match target {
         Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_body(body, output),
         Target::JavaScript => generate_javascript_func_body(body, output),
+        Target::IR => {
+            for i in 0..body.len() {
+                match (*body)[i] {
+                    Op::AutoVar(index) => {
+                        sb_appendf(output, c"    AutoVar(%zu)\n".as_ptr(), index);
+                    }
+                    Op::ExtrnVar(name) => {
+                        sb_appendf(output, c"    ExtrnVar(\"%s\")\n".as_ptr(), name);
+                    }
+                    Op::AutoAssign{index, arg} => {
+                        sb_appendf(output, c"    AutoAssign(%zu, ".as_ptr(), index);
+                        dump_arg(output, arg);
+                        sb_appendf(output, c")\n".as_ptr());
+                    }
+                    Op::AutoPlus{index, lhs, rhs} => {
+                        sb_appendf(output, c"    AutoPlus(%zu, ".as_ptr(), index);
+                        dump_arg(output, lhs);
+                        sb_appendf(output, c", ".as_ptr());
+                        dump_arg(output, rhs);
+                        sb_appendf(output, c")\n".as_ptr());
+                    }
+                    Op::Funcall{name, arg} => {
+                        match arg {
+                            Some(arg) => {
+                                sb_appendf(output, c"    Funcall(\"%s\", ".as_ptr(), name);
+                                dump_arg(output, arg);
+                                sb_appendf(output, c")\n".as_ptr());
+                            }
+                            None => {
+                                sb_appendf(output, c"    Funcall(\"%s\")\n".as_ptr(), name);
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
-// compile_expression expects you to pre-get the first token of the expression with stb_c_lexer_get_token()
-// TODO: we need to somehow make it more obvious, maybe from how you call this function or the name of the function
-pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var]) -> Option<Arg> {
+pub unsafe fn compile_primary_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var]) -> Option<Arg> {
+    stb_c_lexer_get_token(l);
     match (*l).token {
         CLEX_intlit => return Some(Arg::Literal((*l).int_number)),
         CLEX_id => {
@@ -386,17 +444,42 @@ pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, v
             match (*var_def).storage {
                 Storage::Auto => return Some(Arg::AutoVar((*var_def).index)),
                 Storage::External => {
-                    todof!(l, input_path, name_where, c"external variables in lvalues are not supported yet\n");
+                    missingf!(l, input_path, name_where, c"external variables in lvalues are not supported yet\n");
                 }
             }
         }
         _ => {
-            todof!(l, input_path, (*l).where_firstchar, c"Unexpected token %s not all expressions are implemented yet\n", display_token_kind_temp((*l).token));
+            missingf!(l, input_path, (*l).where_firstchar, c"Unexpected token %s not all expressions are implemented yet\n", display_token_kind_temp((*l).token));
         }
     }
 }
 
-unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: *mut Array<Var>, func_body: *mut Array<Op>) -> bool {
+pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var], auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> Option<Arg> {
+    let mut lhs = compile_primary_expression(l, input_path, vars)?;
+
+    // (primary) + (primary) + (primary) + (primary) + ..
+
+    let mut saved_point = (*l).parse_point;
+    stb_c_lexer_get_token(l);
+    if (*l).token == '+' as i64 {
+        (*auto_vars_count) += 1;
+        let index = *auto_vars_count;
+        da_append(func_body, Op::AutoVar(1));
+        while (*l).token == '+' as i64 {
+            let rhs = compile_primary_expression(l, input_path, vars)?;
+            da_append(func_body, Op::AutoPlus {index, lhs, rhs});
+            lhs = Arg::AutoVar(index);
+
+            saved_point = (*l).parse_point;
+            stb_c_lexer_get_token(l);
+        }
+    }
+
+    (*l).parse_point = saved_point;
+    Some(lhs)
+}
+
+unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: *mut Array<Var>, auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> bool {
     (*vars).count = 0;
     loop {
         // Statement
@@ -445,6 +528,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
             });
             // TODO: support multiple auto declarations
             da_append(func_body, Op::AutoVar(1));
+            (*auto_vars_count) += 1;
             if !get_and_expect_clex(l, input_path, ';' as c_long) { return false; }
         } else {
             let name = strdup((*l).string);
@@ -460,8 +544,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
 
                 match (*var_def).storage {
                     Storage::Auto => {
-                        stb_c_lexer_get_token(l);
-                        if let Some(arg) = compile_expression(l, input_path, da_slice(*vars)) {
+                        if let Some(arg) = compile_expression(l, input_path, da_slice(*vars), auto_vars_count, func_body) {
                             da_append(func_body, Op::AutoAssign{
                                 index: (*var_def).index,
                                 arg
@@ -471,7 +554,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                         }
                     }
                     Storage::External => {
-                        todof!(l, input_path, name_where, c"assignment to external variables\n");
+                        missingf!(l, input_path, name_where, c"assignment to external variables\n");
                     }
                 }
 
@@ -483,11 +566,13 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                     return false;
                 }
 
+                let saved_point = (*l).parse_point;
                 stb_c_lexer_get_token(l);
                 let mut arg = None;
-                if (*l).token != ')' as c_long  {
+                if (*l).token != ')' as c_long {
+                    (*l).parse_point = saved_point;
                     // TODO: function calls with multiple arguments
-                    if let Some(expr) = compile_expression(l, input_path, da_slice(*vars)) {
+                    if let Some(expr) = compile_expression(l, input_path, da_slice(*vars), auto_vars_count, func_body) {
                         arg = Some(expr)
                     } else {
                         return false;
@@ -500,7 +585,7 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                         da_append(func_body, Op::Funcall {name, arg});
                     }
                     Storage::Auto => {
-                        todof!(l, input_path, name_where, c"calling functions from auto variables\n");
+                        missingf!(l, input_path, name_where, c"calling functions from auto variables\n");
                     }
                 }
 
@@ -624,13 +709,14 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
             if !get_and_expect_clex(&mut l, input_path, '{' as c_long) { return 1; }
 
             generate_func_prolog(symbol_name, &mut output, target);
-            if !compile_func_body(&mut l, input_path, &mut vars, &mut func_body) { return 1; }
+            let mut auto_vars_count: usize = 0;
+            if !compile_func_body(&mut l, input_path, &mut vars, &mut auto_vars_count, &mut func_body) { return 1; }
             generate_func_body(da_slice(func_body), &mut output, target);
             generate_func_epilog(&mut output, target);
 
             func_body.count = 0;
         } else { // Variable definition
-            todof!(&l, input_path, l.where_firstchar, c"variable definitions\n");
+            missingf!(&l, input_path, l.where_firstchar, c"variable definitions\n");
         }
     }
     match target {
@@ -651,6 +737,9 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
         }
         Target::JavaScript => {
             // TODO: make the js target automatically generate the html file
+            if !write_entire_file(*output_path, output.items as *const c_void, output.count) { return 69 }
+        }
+        Target::IR => {
             if !write_entire_file(*output_path, output.items as *const c_void, output.count) { return 69 }
         }
     }
