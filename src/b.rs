@@ -631,6 +631,8 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
     0
 }
 
+// TODO: make the fasm target automatically call fasm and the linker
+// TODO: make the js target automatically generate the html file
 // TODO: B lexing is different from the C one.
 //   Hack stb_c_lexer.h into stb_b_lexer.h
 // TODO: Create a roadmap based on the spec.
