@@ -104,26 +104,36 @@ unsafe fn get_and_expect_clex(l: *mut stb_lexer, input_path: *const c_char, clex
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-enum Storage {
+pub enum Storage {
     External,
     Auto
 }
 
 #[derive(Clone, Copy)]
-struct Var {
-    name: *const c_char,
-    index: usize,
-    hwere: *mut c_char,
-    storage: Storage,
+pub struct Var {
+    pub name: *const c_char,
+    pub index: usize,
+    pub hwere: *mut c_char,
+    pub storage: Storage,
 }
 
-unsafe fn find_var(vars: *mut [Var], name: *const c_char) -> *mut Var {
+
+pub unsafe fn find_var_mut(vars: *mut [Var], name: *const c_char) -> *mut Var {
     for i in 0..vars.len() {
         if strcmp((*vars)[i].name, name) == 0 {
             return &mut (*vars)[i];
         }
     }
     return ptr::null_mut();
+}
+
+pub unsafe fn find_var(vars: *const [Var], name: *const c_char) -> *const Var {
+    for i in 0..vars.len() {
+        if strcmp((*vars)[i].name, name) == 0 {
+            return &(*vars)[i];
+        }
+    }
+    return ptr::null();
 }
 
 const B_KEYWORDS: *const [*const c_char] = &[
@@ -353,10 +363,36 @@ unsafe fn generate_javascript_func_body(body: *const [Op], output: *mut String_B
     }
 }
 
-unsafe fn generate_func_body(body: *const [Op], output: *mut String_Builder, target: Target) {
+pub unsafe fn generate_func_body(body: *const [Op], output: *mut String_Builder, target: Target) {
     match target {
         Target::Fasm_x86_64_Linux => generate_fasm_x86_64_linux_func_body(body, output),
         Target::JavaScript => generate_javascript_func_body(body, output),
+    }
+}
+
+// compile_expression expects you to pre-get the first token of the expression with stb_c_lexer_get_token()
+// TODO: we need to somehow make it more obvious, maybe from how you call this function or the name of the function
+pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var]) -> Option<Arg> {
+    match (*l).token {
+        CLEX_intlit => return Some(Arg::Literal((*l).int_number)),
+        CLEX_id => {
+            let name = (*l).string;
+            let name_where = (*l).where_firstchar;
+            let var_def = find_var(vars, name);
+            if var_def.is_null() {
+                diagf!(l, input_path, name_where, c"ERROR: could not find variable `%s`\n", name);
+                return None;
+            }
+            match (*var_def).storage {
+                Storage::Auto => return Some(Arg::AutoVar((*var_def).index)),
+                Storage::External => {
+                    todof!(l, input_path, name_where, c"external variables in lvalues are not supported yet\n");
+                }
+            }
+        }
+        _ => {
+            todof!(l, input_path, (*l).where_firstchar, c"Unexpected token %s not all expressions are implemented yet\n", display_token_kind_temp((*l).token));
+        }
     }
 }
 
@@ -425,31 +461,13 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                 match (*var_def).storage {
                     Storage::Auto => {
                         stb_c_lexer_get_token(l);
-                        match (*l).token {
-                            CLEX_intlit => da_append(func_body, Op::AutoAssign{
+                        if let Some(arg) = compile_expression(l, input_path, da_slice(*vars)) {
+                            da_append(func_body, Op::AutoAssign{
                                 index: (*var_def).index,
-                                arg: Arg::Literal((*l).int_number)
-                            }),
-                            CLEX_id => {
-                                let other_name = (*l).string;
-                                let other_var_def = find_var(da_slice(*vars), other_name);
-                                if other_var_def.is_null() {
-                                    diagf!(l, input_path, name_where, c"ERROR: could not find variable `%s`\n", other_name);
-                                    return false;
-                                }
-                                match (*other_var_def).storage {
-                                    Storage::Auto => da_append(func_body, Op::AutoAssign{
-                                        index: (*var_def).index,
-                                        arg: Arg::AutoVar((*other_var_def).index)
-                                    }),
-                                    Storage::External => {
-                                        todof!(l, input_path, name_where, c"assignment from external variables\n");
-                                    }
-                                }
-                            }
-                            _ => {
-                                todof!(l, input_path, (*l).where_firstchar, c"Unexpected token %s, we only support assining variables and int literals for now\n", display_token_kind_temp((*l).token));
-                            }
+                                arg
+                            })
+                        } else {
+                            return false;
                         }
                     }
                     Storage::External => {
@@ -469,23 +487,11 @@ unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: 
                 let mut arg = None;
                 if (*l).token != ')' as c_long  {
                     // TODO: function calls with multiple arguments
-                    match (*l).token {
-                        CLEX_id => {
-                            let var_def = find_var(da_slice(*vars), (*l).string);
-                            if var_def.is_null() {
-                                diagf!(l, input_path, (*l).where_firstchar, c"ERROR: could not find variable `%s`\n", (*l).string);
-                                return false;
-                            }
-                            arg = Some(Arg::AutoVar((*var_def).index));
-                        }
-                        CLEX_intlit => {
-                            arg = Some(Arg::Literal((*l).int_number));
-                        }
-                        _ => {
-                            todof!(l, input_path, (*l).where_firstchar, c"Unexpected token %s, we only support passing variables and int literals for now\n", display_token_kind_temp((*l).token));
-                        }
+                    if let Some(expr) = compile_expression(l, input_path, da_slice(*vars)) {
+                        arg = Some(expr)
+                    } else {
+                        return false;
                     }
-
                     if !get_and_expect_clex(l, input_path, ')' as c_long) { return false; }
                 }
 
