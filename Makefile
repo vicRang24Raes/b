@@ -19,12 +19,18 @@ $(BUILD):
 	mkdir -pv $(BUILD)
 
 .PHONY: examples
-examples: $(BUILD)/hello.js $(BUILD)/hello
+examples: $(BUILD)/hello.js $(BUILD)/hello $(BUILD)/e $(BUILD)/e.js
 
 $(BUILD)/hello.js: $(EXAMPLES)/hello.b $(BUILD)/b
 	$(BUILD)/b $(EXAMPLES)/hello.b -o $(BUILD)/hello.js -target js
 
 $(BUILD)/hello: $(EXAMPLES)/hello.b $(BUILD)/b
 	$(BUILD)/b $(EXAMPLES)/hello.b -o $(BUILD)/hello
+
+$(BUILD)/e: $(EXAMPLES)/e.b $(BUILD)/b
+	$(BUILD)/b $(EXAMPLES)/e.b -o $(BUILD)/e
+
+$(BUILD)/e.js: $(EXAMPLES)/e.b $(BUILD)/b
+	$(BUILD)/b $(EXAMPLES)/e.b -o $(BUILD)/e.js -target js
 
 # TODO: use nob to build the project

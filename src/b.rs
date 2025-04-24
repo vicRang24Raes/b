@@ -177,11 +177,8 @@ pub enum Arg {
 pub enum Op {
     AutoVar(usize),
     ExtrnVar(*const c_char),
-    AutoPlus {
-        index: usize,
-        lhs: Arg,
-        rhs: Arg,
-    },
+    AutoPlus {index: usize, lhs: Arg, rhs: Arg},
+    AutoMult {index: usize, lhs: Arg, rhs: Arg},
     AutoAssign {
         index: usize,
         arg: Arg,
@@ -327,6 +324,24 @@ unsafe fn generate_fasm_x86_64_linux_func_body(body: *const [Op], output: *mut S
                 };
                 sb_appendf(output, c"    mov [rbp-%zu], rax\n".as_ptr(), index*8);
             }
+            Op::AutoMult {index, lhs, rhs} => {
+                sb_appendf(output, c"    xor rdx, rdx\n".as_ptr());
+                match lhs {
+                    Arg::AutoVar(index) => sb_appendf(output, c"    mov rax, [rbp-%zu]\n".as_ptr(), index*8),
+                    Arg::Literal(value) => sb_appendf(output, c"    mov rax, %ld\n".as_ptr(), value),
+                };
+                match rhs {
+                    Arg::AutoVar(index) => {
+                        // TODO: how do we even distinguish signed and unsigned mul in B?
+                        sb_appendf(output, c"    mul QWORD [rbp-%zu]\n".as_ptr(), index*8);
+                    }
+                    Arg::Literal(value) => {
+                        sb_appendf(output, c"    mov rbx, %ld\n".as_ptr(), value);
+                        sb_appendf(output, c"    mul rbx\n".as_ptr());
+                    }
+                };
+                sb_appendf(output, c"    mov [rbp-%zu], rax\n".as_ptr(), index*8);
+            }
             Op::Funcall{name, arg} => {
                 if let Some(arg) = arg {
                     match arg {
@@ -372,6 +387,19 @@ unsafe fn generate_javascript_func_body(body: *const [Op], output: *mut String_B
                 };
                 sb_appendf(output, c";\n".as_ptr());
             }
+            Op::AutoMult{index, lhs, rhs} => {
+                sb_appendf(output, c"    vars[%zu] = ".as_ptr(), index - 1);
+                match lhs {
+                    Arg::AutoVar(index) => sb_appendf(output, c"vars[%zu]".as_ptr(), index - 1),
+                    Arg::Literal(value) => sb_appendf(output, c"%ld".as_ptr(), value),
+                };
+                sb_appendf(output, c" * ".as_ptr());
+                match rhs {
+                    Arg::AutoVar(index) => sb_appendf(output, c"vars[%zu]".as_ptr(), index - 1),
+                    Arg::Literal(value) => sb_appendf(output, c"%ld".as_ptr(), value),
+                };
+                sb_appendf(output, c";\n".as_ptr());
+            }
             Op::Funcall{name, arg} => {
                 if let Some(arg) = arg {
                     match arg {
@@ -406,6 +434,13 @@ pub unsafe fn generate_func_body(body: *const [Op], output: *mut String_Builder,
                     }
                     Op::AutoPlus{index, lhs, rhs} => {
                         sb_appendf(output, c"    AutoPlus(%zu, ".as_ptr(), index);
+                        dump_arg(output, lhs);
+                        sb_appendf(output, c", ".as_ptr());
+                        dump_arg(output, rhs);
+                        sb_appendf(output, c")\n".as_ptr());
+                    }
+                    Op::AutoMult{index, lhs, rhs} => {
+                        sb_appendf(output, c"    AutoMult(%zu, ".as_ptr(), index);
                         dump_arg(output, lhs);
                         sb_appendf(output, c", ".as_ptr());
                         dump_arg(output, rhs);
@@ -459,11 +494,33 @@ pub unsafe fn compile_primary_expression(l: *mut stb_lexer, input_path: *const c
     }
 }
 
-// TODO: the expression compilation leaks a lot of temporary variables
-pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var], auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> Option<Arg> {
+// TODO: add support for binary division expression
+pub unsafe fn compile_multiply_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var], auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> Option<Arg> {
     let mut lhs = compile_primary_expression(l, input_path, vars, auto_vars_count, func_body)?;
 
-    // (primary) + (primary) + (primary) + (primary) + ..
+    let mut saved_point = (*l).parse_point;
+    stb_c_lexer_get_token(l);
+    if (*l).token == '*' as i64 {
+        (*auto_vars_count) += 1;
+        let index = *auto_vars_count;
+        da_append(func_body, Op::AutoVar(1));
+        while (*l).token == '*' as i64 {
+            let rhs = compile_primary_expression(l, input_path, vars, auto_vars_count, func_body)?;
+            da_append(func_body, Op::AutoMult {index, lhs, rhs});
+            lhs = Arg::AutoVar(index);
+
+            saved_point = (*l).parse_point;
+            stb_c_lexer_get_token(l);
+        }
+    }
+
+    (*l).parse_point = saved_point;
+    Some(lhs)
+}
+
+// TODO: add support for binary minus expression
+pub unsafe fn compile_plus_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var], auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> Option<Arg> {
+    let mut lhs = compile_multiply_expression(l, input_path, vars, auto_vars_count, func_body)?;
 
     let mut saved_point = (*l).parse_point;
     stb_c_lexer_get_token(l);
@@ -472,7 +529,7 @@ pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, v
         let index = *auto_vars_count;
         da_append(func_body, Op::AutoVar(1));
         while (*l).token == '+' as i64 {
-            let rhs = compile_primary_expression(l, input_path, vars, auto_vars_count, func_body)?;
+            let rhs = compile_multiply_expression(l, input_path, vars, auto_vars_count, func_body)?;
             da_append(func_body, Op::AutoPlus {index, lhs, rhs});
             lhs = Arg::AutoVar(index);
 
@@ -483,6 +540,12 @@ pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, v
 
     (*l).parse_point = saved_point;
     Some(lhs)
+}
+
+// TODO: the expression compilation leaks a lot of temporary variables
+//   Maybe deallocate all of them at the end of a statement.
+pub unsafe fn compile_expression(l: *mut stb_lexer, input_path: *const c_char, vars: *const [Var], auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> Option<Arg> {
+    compile_plus_expression(l, input_path, vars, auto_vars_count, func_body)
 }
 
 unsafe fn compile_func_body(l: *mut stb_lexer, input_path: *const c_char, vars: *mut Array<Var>, auto_vars_count: *mut usize, func_body: *mut Array<Op>) -> bool {
@@ -631,6 +694,7 @@ unsafe extern "C" fn main(mut argc: i32, mut argv: *mut *mut c_char) -> i32 {
     while argc > 0 {
         if !flag_parse(argc, argv) {
             usage(target_name);
+            flag_print_error(stderr);
             return 1;
         }
         argc = flag_rest_argc();
